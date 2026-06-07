@@ -10,3 +10,5 @@ node_modules
 .kiro/
 .vscode/
 .claude/
+
+/.dev.vars
