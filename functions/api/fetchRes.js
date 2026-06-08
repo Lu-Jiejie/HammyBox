@@ -23,7 +23,10 @@ export async function onRequest(context) {
     const jsonRequest = await request.json();
     const targetUrl = jsonRequest.url;
     if (targetUrl === undefined) {
-        return new Response('URL is required', { status: 400 })
+        return new Response(JSON.stringify({ error: 'URL is required' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+        });
     }
     const response = await fetch(targetUrl);
     const headers = new Headers(response.headers);

@@ -26,7 +26,6 @@ export async function onRequestPost(context) {
             headers: { 'Content-Type': 'application/json' },
         });
     }
-
     // 校验密码
     const passwordMatch = await verifyPassword(password, rightPassword);
     if (!passwordMatch) {

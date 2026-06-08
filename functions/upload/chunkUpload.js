@@ -1,5 +1,5 @@
 /* ======= 客户端分块上传处理 ======= */
-import { createResponse, selectConsistentChannel, getUploadIp, getIPAddress, buildUniqueFileId, endUpload } from './uploadTools';
+import { createResponse, createErrorResponse, selectConsistentChannel, getUploadIp, getIPAddress, buildUniqueFileId, endUpload } from './uploadTools';
 import { TelegramAPI } from '../utils/storage/telegramAPI';
 import { DiscordAPI } from '../utils/storage/discordAPI';
 import { S3Client, CreateMultipartUploadCommand, UploadPartCommand, AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
@@ -19,7 +19,7 @@ export async function initializeChunkedUpload(context) {
         const totalChunks = parseInt(formdata.get('totalChunks'));
 
         if (!originalFileName || !originalFileType || !totalChunks) {
-            return createResponse('Error: Missing initialization parameters', { status: 400 });
+            return createErrorResponse('Missing initialization parameters', 'MISSING_PARAMETERS', 400);
         }
 
         // 生成唯一的 uploadId
@@ -34,10 +34,123 @@ export async function initializeChunkedUpload(context) {
         // 获取上传渠道
         const uploadChannel = url.searchParams.get('uploadChannel') || 'telegram';
         if (uploadChannel === 'webdav') {
-            return createResponse('Error: WebDAV channel does not support chunked uploads. Please use non-chunked upload within your Cloudflare request body limit.', { status: 400 });
+            return createErrorResponse('WebDAV channel does not support chunked uploads. Please use non-chunked upload within your Cloudflare request body limit', 'WEBDAV_CHUNK_NOT_SUPPORTED', 400);
         }
         // 获取指定的渠道名称
         const channelName = url.searchParams.get('channelName') || '';
+
+        // ===== 预检查：验证渠道是否可用 =====
+        const uploadConfig = context.uploadConfig;
+        let channelAvailable = false;
+        let errorMessage = '';
+
+        if (uploadChannel === 'telegram') {
+            const tgSettings = uploadConfig.telegram;
+            const tgChannels = tgSettings?.channels || [];
+            if (tgChannels.length === 0) {
+                errorMessage = 'No Telegram channel configured';
+            } else if (channelName) {
+                const tgChannel = tgChannels.find(ch => ch.name === channelName);
+                if (!tgChannel) {
+                    errorMessage = `Telegram channel '${channelName}' not found`;
+                } else if (!tgChannel.enabled) {
+                    errorMessage = `Telegram channel '${channelName}' is disabled`;
+                } else {
+                    channelAvailable = true;
+                }
+            } else {
+                // 检查是否有至少一个启用的渠道
+                const enabledChannel = tgChannels.find(ch => ch.enabled !== false);
+                if (enabledChannel) {
+                    channelAvailable = true;
+                } else {
+                    errorMessage = 'No enabled Telegram channel available';
+                }
+            }
+        } else if (uploadChannel === 'discord') {
+            const discordSettings = uploadConfig.discord;
+            const discordChannels = discordSettings?.channels || [];
+            if (discordChannels.length === 0) {
+                errorMessage = 'No Discord channel configured';
+            } else if (channelName) {
+                const discordChannel = discordChannels.find(ch => ch.name === channelName);
+                if (!discordChannel) {
+                    errorMessage = `Discord channel '${channelName}' not found`;
+                } else if (!discordChannel.enabled) {
+                    errorMessage = `Discord channel '${channelName}' is disabled`;
+                } else {
+                    channelAvailable = true;
+                }
+            } else {
+                const enabledChannel = discordChannels.find(ch => ch.enabled !== false);
+                if (enabledChannel) {
+                    channelAvailable = true;
+                } else {
+                    errorMessage = 'No enabled Discord channel available';
+                }
+            }
+        } else if (uploadChannel === 's3') {
+            const s3Settings = uploadConfig.s3;
+            const s3Channels = s3Settings?.channels || [];
+            if (s3Channels.length === 0) {
+                errorMessage = 'No S3 channel configured';
+            } else if (channelName) {
+                const s3Channel = s3Channels.find(ch => ch.name === channelName);
+                if (!s3Channel) {
+                    errorMessage = `S3 channel '${channelName}' not found`;
+                } else if (!s3Channel.enabled) {
+                    errorMessage = `S3 channel '${channelName}' is disabled`;
+                } else {
+                    channelAvailable = true;
+                }
+            } else {
+                const enabledChannel = s3Channels.find(ch => ch.enabled !== false);
+                if (enabledChannel) {
+                    channelAvailable = true;
+                } else {
+                    errorMessage = 'No enabled S3 channel available';
+                }
+            }
+        } else if (uploadChannel === 'cfr2') {
+            const r2Settings = uploadConfig.cfr2;
+            const r2Channels = r2Settings?.channels || [];
+            if (!env.hammybox_r2) {
+                errorMessage = 'R2 database not configured in environment';
+            } else if (r2Channels.length === 0) {
+                errorMessage = 'No R2 channel configured';
+            } else if (channelName) {
+                const r2Channel = r2Channels.find(ch => ch.name === channelName);
+                if (!r2Channel) {
+                    errorMessage = `R2 channel '${channelName}' not found`;
+                } else if (!r2Channel.enabled) {
+                    errorMessage = `R2 channel '${channelName}' is disabled`;
+                } else {
+                    channelAvailable = true;
+                }
+            } else {
+                const enabledChannel = r2Channels.find(ch => ch.enabled !== false);
+                if (enabledChannel) {
+                    channelAvailable = true;
+                } else {
+                    errorMessage = 'No enabled R2 channel available';
+                }
+            }
+        } else {
+            errorMessage = `Unknown upload channel: ${uploadChannel}`;
+        }
+
+        // 如果渠道不可用，立即返回错误，阻止分块上传开始
+        if (!channelAvailable) {
+            return createResponse(JSON.stringify({
+                success: false,
+                error: errorMessage,
+                code: 'CHANNEL_NOT_AVAILABLE'
+            }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+        // ===== 预检查结束 =====
 
         // 存储上传会话信息
         const sessionInfo = {
@@ -77,7 +190,7 @@ export async function initializeChunkedUpload(context) {
         });
 
     } catch (error) {
-        return createResponse(`Error: Failed to initialize chunked upload - ${error.message}`, { status: 500 });
+        return createErrorResponse(`Failed to initialize chunked upload - ${error.message}`, 'INIT_FAILED', 500);
     }
 }
 
@@ -92,6 +205,16 @@ export async function handleChunkUpload(context) {
 
     try {
         const chunk = formdata.get('file');
+          if (!chunk) {
+            console.error('No file in formdata');
+            return createErrorResponse('No file received', 'FILE_MISSING', 400);
+        }
+        console.log('Received chunk:', {
+            type: typeof chunk,
+            name: chunk.name,
+            size: chunk.size,
+            constructor: chunk.constructor.name
+        });
         const chunkIndex = parseInt(formdata.get('chunkIndex'));
         const totalChunks = parseInt(formdata.get('totalChunks'));
         const uploadId = formdata.get('uploadId');
@@ -99,14 +222,14 @@ export async function handleChunkUpload(context) {
         const originalFileType = formdata.get('originalFileType');
 
         if (!chunk || chunkIndex === null || !totalChunks || !uploadId || !originalFileName || !originalFileType) {
-            return createResponse('Error: Missing chunk upload parameters', { status: 400 });
+            return createErrorResponse('Missing chunk upload parameters', 'MISSING_PARAMETERS', 400);
         }
 
         // 验证上传会话
         const sessionKey = `upload_session_${uploadId}`;
         const sessionData = await db.get(sessionKey);
         if (!sessionData) {
-            return createResponse('Error: Invalid or expired upload session', { status: 400 });
+            return createErrorResponse('Invalid or expired upload session', 'SESSION_INVALID', 400);
         }
 
         const sessionInfo = JSON.parse(sessionData);
@@ -114,18 +237,18 @@ export async function handleChunkUpload(context) {
         // 验证会话信息
         if (sessionInfo.originalFileName !== originalFileName ||
             sessionInfo.totalChunks !== totalChunks) {
-            return createResponse('Error: Session parameters mismatch', { status: 400 });
+            return createErrorResponse('Session parameters mismatch', 'SESSION_MISMATCH', 400);
         }
 
         // 检查会话是否过期
         if (Date.now() > sessionInfo.expiresAt) {
-            return createResponse('Error: Upload session expired', { status: 410 });
+            return createErrorResponse('Upload session expired', 'SESSION_EXPIRED', 410);
         }
 
         // 获取上传渠道
         const uploadChannel = url.searchParams.get('uploadChannel') || sessionInfo.uploadChannel || 'telegram';
         if (uploadChannel === 'webdav') {
-            return createResponse('Error: WebDAV channel does not support chunked uploads. Please use non-chunked upload within your Cloudflare request body limit.', { status: 400 });
+            return createErrorResponse('WebDAV channel does not support chunked uploads. Please use non-chunked upload within your Cloudflare request body limit', 'WEBDAV_CHUNK_NOT_SUPPORTED', 400);
         }
         // 获取指定的渠道名称
         const channelName = url.searchParams.get('channelName') || sessionInfo.channelName || '';
@@ -172,7 +295,7 @@ export async function handleChunkUpload(context) {
         });
 
     } catch (error) {
-        return createResponse(`Error: Failed to upload chunk - ${error.message}`, { status: 500 });
+        return createErrorResponse(`Failed to upload chunk - ${error.message}`, 'CHUNK_UPLOAD_FAILED', 500);
     }
 }
 
@@ -369,8 +492,15 @@ async function uploadSingleChunkToR2Multipart(context, chunkData, chunkIndex, to
 
     try {
         const r2Settings = uploadConfig.cfr2;
-        if (!r2Settings.channels || r2Settings.channels.length === 0) {
+        const r2Channels = r2Settings.channels;
+
+        if (!r2Channels || r2Channels.length === 0) {
             return { success: false, error: 'No R2 channel provided' };
+        }
+
+        // 检查 R2 是否已配置
+        if (!env.hammybox_r2) {
+            return { success: false, error: 'R2 database not configured' };
         }
 
         const R2DataBase = env.hammybox_r2;
@@ -468,11 +598,11 @@ async function uploadSingleChunkToS3Multipart(context, chunkData, chunkIndex, to
             s3Channel = selectConsistentChannel(s3Channels, uploadId, s3Settings.loadBalance.enabled);
         }
 
-        console.log(`Uploading S3 chunk ${chunkIndex} for uploadId: ${uploadId}, selected channel: ${s3Channel.name || 'default'}`);
-
         if (!s3Channel) {
             return { success: false, error: 'No S3 channel provided' };
         }
+
+        console.log(`Uploading S3 chunk ${chunkIndex} for uploadId: ${uploadId}, selected channel: ${s3Channel.name || 'default'}`);
 
         const { endpoint, pathStyle, accessKeyId, secretAccessKey, bucketName, region } = s3Channel;
 
@@ -589,11 +719,11 @@ async function uploadSingleChunkToTelegram(context, chunkData, chunkIndex, total
             tgChannel = selectConsistentChannel(tgChannels, uploadId, tgSettings.loadBalance.enabled);
         }
 
-        console.log(`Uploading Telegram chunk ${chunkIndex} for uploadId: ${uploadId}, selected channel: ${tgChannel.name || 'default'}`);
-
         if (!tgChannel) {
             return { success: false, error: 'No Telegram channel provided' };
         }
+
+        console.log(`Uploading Telegram chunk ${chunkIndex} for uploadId: ${uploadId}, selected channel: ${tgChannel.name || 'default'}`);
 
         const tgBotToken = tgChannel.botToken;
         const tgChatId = tgChannel.chatId;
@@ -653,11 +783,11 @@ async function uploadSingleChunkToDiscord(context, chunkData, chunkIndex, totalC
             discordChannel = selectConsistentChannel(discordChannels, uploadId, discordSettings.loadBalance?.enabled);
         }
 
-        console.log(`Uploading Discord chunk ${chunkIndex} for uploadId: ${uploadId}, selected channel: ${discordChannel.name || 'default'}`);
-
         if (!discordChannel) {
             return { success: false, error: 'No Discord channel provided' };
         }
+
+        console.log(`Uploading Discord chunk ${chunkIndex} for uploadId: ${uploadId}, selected channel: ${discordChannel.name || 'default'}`);
 
         const botToken = discordChannel.botToken;
         const channelId = discordChannel.channelId;
@@ -1197,7 +1327,7 @@ export async function uploadLargeFileToTelegram(context, file, fullId, metadata,
 
     // 为了避免CPU超时，限制最大分片数（考虑Cloudflare Worker的CPU时间限制）
     if (totalChunks > 50) {
-        return createResponse('Error: File too large (exceeds 1GB limit)', { status: 413 });
+        return createErrorResponse('File too large (exceeds 1GB limit)', 'FILE_TOO_LARGE', 413);
     }
 
     const chunks = [];

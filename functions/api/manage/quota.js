@@ -30,7 +30,10 @@ export async function onRequest(context) {
         return await recalculateQuota(context);
     }
 
-    return new Response('Method not allowed', { status: 405, headers: corsHeaders });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+        status: 405,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
 }
 
 // 获取各渠道容量统计（从索引元数据读取）

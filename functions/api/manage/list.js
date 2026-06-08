@@ -70,8 +70,11 @@ export async function onRequest(context) {
                 console.log(`Rebuilt ${processed} files...`);
             }));
 
-            return new Response('Index rebuilt asynchronously', {
-                headers: { "Content-Type": "text/plain", ...corsHeaders }
+            return new Response(JSON.stringify({
+                success: true,
+                message: 'Index rebuild started asynchronously'
+            }), {
+                headers: { "Content-Type": "application/json", ...corsHeaders }
             });
         }
 
@@ -79,8 +82,11 @@ export async function onRequest(context) {
         if (action === 'merge-operations') {
             waitUntil(mergeOperationsToIndex(context));
 
-            return new Response('Operations merged into index asynchronously', {
-                headers: { "Content-Type": "text/plain", ...corsHeaders }
+            return new Response(JSON.stringify({
+                success: true,
+                message: 'Operations merge started asynchronously'
+            }), {
+                headers: { "Content-Type": "application/json", ...corsHeaders }
             });
         }
 
@@ -88,8 +94,11 @@ export async function onRequest(context) {
         if (action === 'delete-operations') {
             waitUntil(deleteAllOperations(context));
 
-            return new Response('All operations deleted asynchronously', {
-                headers: { "Content-Type": "text/plain", ...corsHeaders }
+            return new Response(JSON.stringify({
+                success: true,
+                message: 'Operations deletion started asynchronously'
+            }), {
+                headers: { "Content-Type": "application/json", ...corsHeaders }
             });
         }
 

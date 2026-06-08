@@ -8,7 +8,10 @@ export async function onRequest(context) {
     const { request, env } = context;
 
     if (request.method !== 'GET') {
-        return new Response('Method Not Allowed', { status: 405 });
+        return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
+            status: 405,
+            headers: { 'Content-Type': 'application/json' }
+        });
     }
 
     // 鉴权：登录即放行

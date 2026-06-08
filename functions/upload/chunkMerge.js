@@ -1,5 +1,5 @@
 /* ========== 分块合并处理 ========== */
-import { createResponse, getUploadIp, getIPAddress, selectConsistentChannel, buildUniqueFileId, endUpload, sanitizeUploadFolder } from './uploadTools';
+import { createResponse, createErrorResponse, getUploadIp, getIPAddress, selectConsistentChannel, buildUniqueFileId, endUpload, sanitizeUploadFolder } from './uploadTools';
 import { retryFailedChunks, cleanupFailedMultipartUploads, checkChunkUploadStatuses, cleanupChunkData, cleanupUploadSession } from './chunkUpload';
 import { S3Client, CompleteMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { getDatabase } from '../utils/databaseAdapter.js';
@@ -21,14 +21,14 @@ export async function handleChunkMerge(context) {
         originalFileType = formdata.get('originalFileType');
 
         if (!uploadId || !totalChunks || !originalFileName) {
-            return createResponse('Error: Missing merge parameters', { status: 400 });
+            return createErrorResponse('Missing merge parameters', 'MISSING_PARAMETERS', 400);
         }
 
         // 验证上传会话
         const sessionKey = `upload_session_${uploadId}`;
         const sessionData = await db.get(sessionKey);
         if (!sessionData) {
-            return createResponse('Error: Invalid or expired upload session', { status: 400 });
+            return createErrorResponse('Invalid or expired upload session', 'SESSION_INVALID', 400);
         }
 
         const sessionInfo = JSON.parse(sessionData);
@@ -36,18 +36,18 @@ export async function handleChunkMerge(context) {
         // 验证会话信息
         if (sessionInfo.originalFileName !== originalFileName ||
             sessionInfo.totalChunks !== totalChunks) {
-            return createResponse('Error: Session parameters mismatch', { status: 400 });
+            return createErrorResponse('Session parameters mismatch', 'SESSION_MISMATCH', 400);
         }
 
         // 检查会话是否过期
         if (Date.now() > sessionInfo.expiresAt) {
-            return createResponse('Error: Upload session expired', { status: 410 });
+            return createErrorResponse('Upload session expired', 'SESSION_EXPIRED', 410);
         }
 
         // 使用会话中的上传渠道，或者从URL参数获取
         uploadChannel = url.searchParams.get('uploadChannel') || sessionInfo.uploadChannel || 'telegram';
         if (uploadChannel === 'webdav') {
-            return createResponse('Error: WebDAV channel does not support chunked uploads. Please use non-chunked upload within your Cloudflare request body limit.', { status: 400 });
+            return createErrorResponse('WebDAV channel does not support chunked uploads. Please use non-chunked upload within your Cloudflare request body limit', 'WEBDAV_CHUNK_NOT_SUPPORTED', 400);
         }
 
         // 获取指定的渠道名称（优先URL参数，其次会话信息）
@@ -79,7 +79,7 @@ export async function handleChunkMerge(context) {
         // 清理上传会话
         waitUntil(cleanupUploadSession(env, uploadId));
 
-        return createResponse(`Error: Failed to merge chunks - ${error.message}`, { status: 500 });
+        return createErrorResponse(`Failed to merge chunks - ${error.message}`, 'MERGE_FAILED', 500);
     }
 }
 
@@ -132,7 +132,7 @@ async function startMerge(context, uploadId, totalChunks, originalFileName, orig
         // 清理上传会话
         await cleanupUploadSession(env, uploadId);
 
-        return createResponse(`Error: Failed to merge chunks - ${error.message}`, { status: 500 });
+        return createErrorResponse(`Failed to merge chunks - ${error.message}`, 'MERGE_FAILED', 500);
     }
 }
 
@@ -327,6 +327,10 @@ async function mergeS3ChunksInfo(context, uploadId, completedChunks, metadata) {
             s3Channel = selectConsistentChannel(s3Channels, uploadId, s3Settings.loadBalance.enabled);
         }
 
+        if (!s3Channel) {
+            throw new Error('No S3 channel available for merging');
+        }
+
         console.log(`Merging S3 chunks for uploadId: ${uploadId}, selected channel: ${s3Channel.name || 'default'}`);
 
         const { endpoint, pathStyle, accessKeyId, secretAccessKey, bucketName, region } = s3Channel;
@@ -399,7 +403,13 @@ async function mergeS3ChunksInfo(context, uploadId, completedChunks, metadata) {
 
         return {
             success: true,
-            result: [{ src: updatedReturnLink }]
+            result: {
+                success: true,
+                data: {
+                    src: updatedReturnLink,
+                    fileId: finalFileId
+                }
+            }
         };
 
     } catch (error) {
@@ -423,6 +433,10 @@ async function mergeTelegramChunksInfo(context, uploadId, completedChunks, metad
         }
         if (!tgChannel) {
             tgChannel = selectConsistentChannel(tgChannels, uploadId, tgSettings.loadBalance.enabled);
+        }
+
+        if (!tgChannel) {
+            throw new Error('No Telegram channel available for merging');
         }
 
         console.log(`Merging Telegram chunks for uploadId: ${uploadId}, selected channel: ${tgChannel.name || 'default'}`);
@@ -472,7 +486,13 @@ async function mergeTelegramChunksInfo(context, uploadId, completedChunks, metad
 
         return {
             success: true,
-            result: [{ 'src': updatedReturnLink }]
+            result: {
+                success: true,
+                data: {
+                    src: updatedReturnLink,
+                    fileId: finalFileId
+                }
+            }
         };
 
     } catch (error) {
@@ -496,6 +516,10 @@ async function mergeDiscordChunksInfo(context, uploadId, completedChunks, metada
         }
         if (!discordChannel) {
             discordChannel = selectConsistentChannel(discordChannels, uploadId, discordSettings.loadBalance?.enabled);
+        }
+
+        if (!discordChannel) {
+            throw new Error('No Discord channel available for merging');
         }
 
         console.log(`Merging Discord chunks for uploadId: ${uploadId}, selected channel: ${discordChannel.name || 'default'}`);
@@ -546,7 +570,13 @@ async function mergeDiscordChunksInfo(context, uploadId, completedChunks, metada
 
         return {
             success: true,
-            result: [{ 'src': updatedReturnLink }]
+            result: {
+                success: true,
+                data: {
+                    src: updatedReturnLink,
+                    fileId: finalFileId
+                }
+            }
         };
 
     } catch (error) {

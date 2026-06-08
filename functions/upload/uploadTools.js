@@ -21,6 +21,23 @@ export function createResponse(body, options = {}) {
     });
 }
 
+// 统一的错误响应创建函数
+export function createErrorResponse(error, code, status = 400) {
+    return createResponse(
+        JSON.stringify({
+            success: false,
+            error: error,
+            code: code
+        }),
+        {
+            status: status,
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        }
+    );
+}
+
 // 生成短链接
 export function generateShortId(length = 8) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';

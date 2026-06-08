@@ -22,7 +22,10 @@ export async function onRequestGet(context) {
     // 鉴权：登录即放行
     const authResult = await authenticate({ env, request, requiredPermission: null });
     if (!authResult.authorized) {
-        return new Response('Unauthorized', { status: 401 });
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+        });
     }
 
     try {
