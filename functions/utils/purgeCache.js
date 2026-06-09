@@ -63,3 +63,25 @@ export async function purgePublicFileListCache(origin, ...dirs) {
         console.error('Failed to clear publicFileList cache:', error);
     }
 }
+
+/**
+ * 清理单个文件的 Cache API 缓存
+ * @param {string} origin - 域名（如 https://your-domain.com）
+ * @param {string} fileId - 文件ID（如 photos/2024/cat.png）
+ */
+export async function purgeFileCache(origin, fileId) {
+    try {
+        const cache = caches.default;
+        // 构建文件访问 URL（使用逗号分隔路径）
+        const fileUrl = `${origin}/api/file/${fileId.split('/').join(',')}`;
+
+        // cache.delete 有 bug，通过写入一个 max-age=0 的 response 来清除缓存
+        const nullResponse = new Response(null, {
+            headers: { 'Cache-Control': 'max-age=0' },
+        });
+
+        await cache.put(fileUrl, nullResponse);
+    } catch (error) {
+        console.error('Failed to purge file cache:', error);
+    }
+}

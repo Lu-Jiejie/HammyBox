@@ -2,6 +2,7 @@ import { addFileToIndex } from '../../../utils/indexManager.js';
 import { getDatabase } from '../../../utils/databaseAdapter.js';
 import { buildFileMetadataForManagement } from '../../../utils/metadata/metadataView.js';
 import { cleanPersistedMetadata } from '../../../utils/metadata/metadataSecurity.js';
+import { purgeCFCache, purgeFileCache } from '../../../utils/purgeCache.js';
 
 // CORS 跨域响应头
 const corsHeaders = {
@@ -99,6 +100,14 @@ export async function onRequest(context) {
 
         // 保存更新后的 metadata
         await db.put(fileId, fileData.value, { metadata: metadataToSave });
+
+        // 清理 CDN 缓存（因为 FileName/FileType 会影响响应头）
+        const url = new URL(request.url);
+        const cdnUrl = `https://${url.hostname}/api/file/${fileId.split('/').join(',')}`;
+        waitUntil(purgeCFCache(env, cdnUrl));
+
+        // 清理 Cache API 缓存
+        waitUntil(purgeFileCache(url.origin, fileId));
 
         // 更新索引
         waitUntil(addFileToIndex(context, fileId, metadataToSave));

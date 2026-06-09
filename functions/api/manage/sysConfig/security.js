@@ -41,6 +41,11 @@ export async function onRequest(context) {
         const body = await request.json()
         const newSettings = body
 
+        // 检测白名单模式是否变更
+        const oldWhiteListMode = settings.access?.whiteListMode?.enabled ?? false;
+        const newWhiteListMode = newSettings.access?.whiteListMode?.enabled ?? false;
+        const whiteListModeChanged = oldWhiteListMode !== newWhiteListMode;
+
         // 覆盖设置，apiTokens不在这里修改
         settings.upload = newSettings.upload || settings.upload
         settings.access = newSettings.access || settings.access
@@ -82,6 +87,11 @@ export async function onRequest(context) {
         return new Response(JSON.stringify({
             message: 'security settings saved',
             credentialsChanged,
+            whiteListModeChanged,
+            cacheWarning: whiteListModeChanged
+                ? '白名单模式已变更。建议立即清理所有文件缓存以确保访问控制立即生效（已缓存的文件最多需要 30 天才能自动过期）。'
+                : null
+        }), {
         }), {
             headers: {
                 'content-type': 'application/json',
@@ -131,8 +141,7 @@ export async function getSecurityConfig(db, env) {
         },
         // 白名单模式
         whiteListMode: {
-            enabled: kvAccess.whiteListMode?.enabled ?? false,
-            folders: kvAccess.whiteListMode?.folders || []
+            enabled: kvAccess.whiteListMode?.enabled ?? false
         }
     }
     settings.access = access

@@ -172,24 +172,12 @@ export async function returnWithCheck(context, imgRecord) {
 
     // 2. 检查白名单模式
     if (securityConfig?.access?.whiteListMode?.enabled) {
-        const fileId = record.metadata?.FileId || '';
-        const whitelistFolders = securityConfig.access.whiteListMode.folders || [];
-
-        // 2.1 检查文件是否在白名单文件夹内
-        const isInWhitelistFolder = whitelistFolders.some(folder => {
-            return fileId.startsWith(folder);
-        });
-
-        if (isInWhitelistFolder) {
-            return response;  // 在白名单文件夹，允许访问
-        }
-
-        // 2.2 检查文件是否有白名单标签
+        // 白名单模式下，只有带 whitelist 标签的文件可访问
         if (record.metadata.Tags?.includes('whitelist')) {
             return response;  // 有白名单标签，允许访问
         }
 
-        // 2.3 既不在白名单文件夹，也没有白名单标签，拒绝访问
+        // 没有白名单标签，拒绝访问
         return await returnBlockedResponse(context.url, 'whitelist-blocked');
     }
 

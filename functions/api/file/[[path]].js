@@ -39,22 +39,38 @@ export async function onRequest(context) {  // Contents of context object
         return new Response('Error: Decode Image ID Failed', { status: 400 });
     }
 
-    // 读取安全配置，解析必要参数
-    const securityConfig = await fetchSecurityConfig(env);
-    context.securityConfig = securityConfig;
-
     const url = new URL(request.url);
     context.url = url;
 
-    const Referer = request.headers.get('Referer')
+    // 读取安全配置（需要提前读取，用于 Referer 检查）
+    const securityConfig = await fetchSecurityConfig(env);
+    context.securityConfig = securityConfig;
+
+    const Referer = request.headers.get('Referer');
     context.Referer = Referer;
 
-    context.fileAccess = await buildFileAccessContext(context);
-
-    // 检查引用域名是否被允许
+    // Referer 防盗链检查（必须在缓存之前，避免缓存绕过检查）
     if (!isDomainAllowed(context)) {
         return await returnBlockedResponse(url, 'referer-blocked');
     }
+
+    // 检查是否为预览模式
+    const isPreviewMode = url.searchParams.get('preview') === 'true';
+
+    // 预览模式不缓存，Range 请求不缓存
+    const shouldCheckCache = !isPreviewMode && !request.headers.get('Range');
+
+    // 检查 Cache API（在 Referer 检查之后）
+    if (shouldCheckCache) {
+        const cache = caches.default;
+        const cacheKey = new Request(url.toString(), { method: 'GET' });
+        const cached = await cache.match(cacheKey);
+        if (cached) {
+            return cached;
+        }
+    }
+
+    context.fileAccess = await buildFileAccessContext(context);
 
     // 从数据库中获取图片记录
     const db = getDatabase(env);
@@ -80,36 +96,36 @@ export async function onRequest(context) {  // Contents of context object
 
     /* Cloudflare R2渠道 */
     if (imgRecord.metadata?.Channel === 'CloudflareR2') {
-        return await handleR2File(context, fileId, encodedFileName, fileType);
+        return await cacheResponse(await handleR2File(context, fileId, encodedFileName, fileType), context);
     }
 
     /* S3渠道 */
     if (imgRecord.metadata?.Channel === "S3") {
-        return await handleS3File(context, imgRecord.metadata, encodedFileName, fileType);
+        return await cacheResponse(await handleS3File(context, imgRecord.metadata, encodedFileName, fileType), context);
     }
 
     /* Discord 渠道 */
     if (imgRecord.metadata?.Channel === 'Discord') {
         // 检查是否为分片文件
         if (imgRecord.metadata?.IsChunked === true) {
-            return await handleDiscordChunkedFile(context, imgRecord, encodedFileName, fileType);
+            return await cacheResponse(await handleDiscordChunkedFile(context, imgRecord, encodedFileName, fileType), context);
         }
-        return await handleDiscordFile(context, imgRecord.metadata, encodedFileName, fileType);
+        return await cacheResponse(await handleDiscordFile(context, imgRecord.metadata, encodedFileName, fileType), context);
     }
 
     /* HuggingFace 渠道 */
     if (imgRecord.metadata?.Channel === 'HuggingFace') {
-        return await handleHuggingFaceFile(context, imgRecord.metadata, encodedFileName, fileType);
+        return await cacheResponse(await handleHuggingFaceFile(context, imgRecord.metadata, encodedFileName, fileType), context);
     }
 
     /* WebDAV 渠道 */
     if (imgRecord.metadata?.Channel === 'WebDAV') {
-        return await handleWebDAVFile(context, imgRecord.metadata, encodedFileName, fileType);
+        return await cacheResponse(await handleWebDAVFile(context, imgRecord.metadata, encodedFileName, fileType), context);
     }
 
     /* 外链渠道 */
     if (imgRecord.metadata?.Channel === 'External') {
-        // 直接重定向到外链
+        // 直接重定向到外链（不缓存重定向）
         return Response.redirect(imgRecord.metadata?.ExternalLink, 302);
     }
 
@@ -126,7 +142,7 @@ export async function onRequest(context) {  // Contents of context object
         } else if (imgRecord.metadata?.Channel === 'TelegramNew') {
             // 检查是否为分片文件
             if (imgRecord.metadata?.IsChunked === true) {
-                return await handleTelegramChunkedFile(context, imgRecord, encodedFileName, fileType);
+                return await cacheResponse(await handleTelegramChunkedFile(context, imgRecord, encodedFileName, fileType), context);
             }
 
             TgFileID = imgRecord.metadata?.TgFileId;
@@ -170,7 +186,7 @@ export async function onRequest(context) {  // Contents of context object
             headers,
         });
 
-        return newRes;
+        return await cacheResponse(newRes, context);
     } catch (error) {
         return new Response('Error: ' + error, { status: 500 });
     }
@@ -1060,4 +1076,34 @@ function getWebDAVPublicFileUrl(webdavCredentials, filePath) {
     }
 
     return '';
+}
+
+/**
+ * 缓存响应到 Cache API
+ * @param {Response} response - 要缓存的响应
+ * @param {Object} context - 上下文对象
+ * @returns {Response} - 原响应（用于链式调用）
+ */
+async function cacheResponse(response, context) {
+    const { request, url, waitUntil, fileAccess } = context;
+
+    // 只缓存成功的 GET 响应（不缓存 HEAD、Range、预览模式、错误响应）
+    if (request.method !== 'GET' ||
+        response.status !== 200 ||
+        fileAccess?.isPreviewMode ||
+        request.headers.get('Range')) {
+        return response;
+    }
+
+    try {
+        const cache = caches.default;
+        const cacheKey = new Request(url.toString(), { method: 'GET' });
+
+        // 异步写入缓存，不阻塞响应
+        waitUntil(cache.put(cacheKey, response.clone()));
+    } catch (error) {
+        console.error('Failed to cache response:', error);
+    }
+
+    return response;
 }

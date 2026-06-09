@@ -1,4 +1,4 @@
-import { purgeCFCache } from "../../../utils/purgeCache.js";
+import { purgeCFCache, purgeFileCache } from "../../../utils/purgeCache.js";
 import { batchAddFilesToIndex } from "../../../utils/indexManager.js";
 import { getDatabase } from "../../../utils/databaseAdapter.js";
 import { mergeTags, validateTag } from "../../../utils/tagHelpers.js";
@@ -129,6 +129,9 @@ export async function onRequest(context) {
                 // Clear CDN cache (async)
                 const cdnUrl = `https://${url.hostname}/file/${fileId}`;
                 waitUntil(purgeCFCache(env, cdnUrl));
+
+                // Clear Cache API cache
+                waitUntil(purgeFileCache(url.origin, fileId));
 
                 // Track updated file for batch index update
                 updatedFiles.push({

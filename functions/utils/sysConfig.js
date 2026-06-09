@@ -112,8 +112,7 @@ export async function fetchSecurityConfig(env) {
                     allowEmptyReferer: true
                 },
                 whiteListMode: {
-                    enabled: false,
-                    folders: []
+                    enabled: false
                 }
             }
         };
