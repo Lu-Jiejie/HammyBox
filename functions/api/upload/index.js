@@ -494,11 +494,19 @@ async function uploadFileToTelegram(context, fullId, metadata, fileExt, fileName
         sendFunction = { 'url': 'sendDocument', 'type': 'document' };
     }
 
-    // 文件大小限制检查：sendPhoto/sendAnimation 最大 10MB，超过则使用 sendDocument（最大 50MB）
+    // 文件大小和尺寸限制检查：sendPhoto/sendAnimation 最大 10MB，且宽+高 ≤ 10000
     console.log(`[Telegram] File size: ${fileSize}, sendFunction: ${sendFunction.url}`);
-    if ((sendFunction.url === 'sendPhoto' || sendFunction.url === 'sendAnimation') && fileSize > 10 * 1024 * 1024) {
-        console.log(`[Telegram] File too large (${fileSize} bytes), switching to sendDocument`);
-        sendFunction = { 'url': 'sendDocument', 'type': 'document' };
+    if (sendFunction.url === 'sendPhoto' || sendFunction.url === 'sendAnimation') {
+        // 检查文件大小
+        if (fileSize > 10 * 1024 * 1024) {
+            console.log(`[Telegram] File too large (${fileSize} bytes), switching to sendDocument`);
+            sendFunction = { 'url': 'sendDocument', 'type': 'document' };
+        }
+        // 检查图片尺寸（Telegram 限制：宽+高 ≤ 10000）
+        else if (metadata.Width && metadata.Height && (metadata.Width + metadata.Height > 10000)) {
+            console.log(`[Telegram] Image dimensions too large (${metadata.Width}x${metadata.Height}), switching to sendDocument`);
+            sendFunction = { 'url': 'sendDocument', 'type': 'document' };
+        }
     }
 
     // 上传文件到 Telegram
