@@ -681,7 +681,13 @@ async function uploadFileToDiscord(context, fullId, metadata, returnLink) {
 
         // 返回成功响应
         return createResponse(
-            JSON.stringify([{ 'src': returnLink }]),
+            JSON.stringify({
+                success: true,
+                data: {
+                    src: returnLink,
+                    fileId: fullId
+                }
+            }),
             {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' }
@@ -779,7 +785,13 @@ async function uploadFileToHuggingFace(context, fullId, metadata, returnLink) {
 
         // 返回成功响应
         return createResponse(
-            JSON.stringify([{ 'src': returnLink }]),
+            JSON.stringify({
+                success: true,
+                data: {
+                    src: returnLink,
+                    fileId: fullId
+                }
+            }),
             {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' }
@@ -840,7 +852,13 @@ async function uploadFileToWebDAV(context, fullId, metadata, returnLink) {
         waitUntil(endUpload(context, fullId, metadata));
 
         return createResponse(
-            JSON.stringify([{ 'src': returnLink }]),
+            JSON.stringify({
+                success: true,
+                data: {
+                    src: returnLink,
+                    fileId: fullId
+                }
+            }),
             {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' }

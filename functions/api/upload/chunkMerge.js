@@ -304,7 +304,13 @@ async function mergeR2ChunksInfo(context, uploadId, completedChunks, metadata) {
 
         return {
             success: true,
-            result: [{ 'src': updatedReturnLink }]
+            result: {
+                success: true,
+                data: {
+                    src: updatedReturnLink,
+                    fileId: finalFileId
+                }
+            }
         };
 
     } catch (error) {
