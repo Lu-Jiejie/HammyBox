@@ -1,5 +1,5 @@
 import { authenticate } from '../../../utils/auth/authCore.js';
-import { getDatabase } from '../../../utils/databaseAdapter.js';
+import { readIndex } from '../../../utils/indexManager.js';
 
 // CORS 跨域响应头
 const corsHeaders = {
@@ -81,24 +81,20 @@ export async function onRequest(context) {
 
         if (type === 'all') {
             // 清理所有文件缓存
-            const db = getDatabase(env);
+            const result = await readIndex(context, { count: -1 });
+            const files = result.files || [];
 
-            // 读取索引获取所有文件
-            const indexKey = 'manage@fileIndex@all';
-            const indexData = await db.get(indexKey);
-
-            if (!indexData) {
+            if (files.length === 0) {
                 return new Response(JSON.stringify({
-                    success: false,
-                    message: 'File index not found',
+                    success: true,
+                    message: 'No files to clear',
+                    total: 0,
+                    cleared: 0,
                 }), {
-                    status: 404,
+                    status: 200,
                     headers: { 'Content-Type': 'application/json', ...corsHeaders },
                 });
             }
-
-            const index = JSON.parse(indexData);
-            const files = index.files || [];
 
             let cleared = 0;
             const nullResponse = new Response(null, {
@@ -107,12 +103,12 @@ export async function onRequest(context) {
 
             // 遍历清理所有文件缓存
             for (const file of files) {
-                const fileUrl = `${origin}/api/file/${file.fileId.split('/').join(',')}`;
+                const fileUrl = `${origin}/api/file/${file.id.split('/').join(',')}`;
                 try {
                     await cache.put(fileUrl, nullResponse.clone());
                     cleared++;
                 } catch (error) {
-                    console.error(`Failed to clear cache for ${file.fileId}:`, error);
+                    console.error(`Failed to clear cache for ${file.id}:`, error);
                 }
             }
 
