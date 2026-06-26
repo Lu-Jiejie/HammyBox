@@ -9,11 +9,11 @@
 
 // --- 中间件（自动生成） ---
 import * as mw_api from '../../functions/api/_middleware.js';
+import * as mw_api_dav from '../../functions/api/dav/_middleware.js';
+import * as mw_api_file from '../../functions/api/file/_middleware.js';
 import * as mw_api_manage from '../../functions/api/manage/_middleware.js';
-import * as mw_dav from '../../functions/dav/_middleware.js';
-import * as mw_file from '../../functions/file/_middleware.js';
-import * as mw_random from '../../functions/random/_middleware.js';
-import * as mw_upload from '../../functions/upload/_middleware.js';
+import * as mw_api_random from '../../functions/api/random/_middleware.js';
+import * as mw_api_upload from '../../functions/api/upload/_middleware.js';
 
 // --- 路由模块（自动生成） ---
 import * as apiManageBatchIndexChunk from '../../functions/api/manage/batch/index/chunk.js';
@@ -22,37 +22,39 @@ import * as apiManageBatchIndexFinalize from '../../functions/api/manage/batch/i
 import * as apiManageBatchRestoreChunk from '../../functions/api/manage/batch/restore/chunk.js';
 import * as apiManageBatchList from '../../functions/api/manage/batch/list.js';
 import * as apiManageBatchSettings from '../../functions/api/manage/batch/settings.js';
+import * as apiManageCachePurge from '../../functions/api/manage/cache/purge.js';
+import * as apiManageFoldersList from '../../functions/api/manage/folders/list.js';
+import * as apiManageFoldersTree from '../../functions/api/manage/folders/tree.js';
 import * as apiManageSysConfigOthers from '../../functions/api/manage/sysConfig/others.js';
 import * as apiManageSysConfigPage from '../../functions/api/manage/sysConfig/page.js';
 import * as apiManageSysConfigSecurity from '../../functions/api/manage/sysConfig/security.js';
 import * as apiManageSysConfigUpload from '../../functions/api/manage/sysConfig/upload.js';
 import * as apiManageTagsAutocomplete from '../../functions/api/manage/tags/autocomplete.js';
 import * as apiManageTagsBatch from '../../functions/api/manage/tags/batch.js';
+import * as apiUploadHuggingfaceCommitUpload from '../../functions/api/upload/huggingface/commitUpload.js';
+import * as apiUploadHuggingfaceCompleteMultipart from '../../functions/api/upload/huggingface/completeMultipart.js';
+import * as apiUploadHuggingfaceGetUploadUrl from '../../functions/api/upload/huggingface/getUploadUrl.js';
 import * as apiAuthLogin from '../../functions/api/auth/login.js';
 import * as apiAuthLogout from '../../functions/api/auth/logout.js';
 import * as apiAuthResetAuth from '../../functions/api/auth/resetAuth.js';
 import * as apiAuthSessionCheck from '../../functions/api/auth/sessionCheck.js';
 import * as apiBingWallpaper_index from '../../functions/api/bing/wallpaper/index.js';
 import * as apiManageApiTokens from '../../functions/api/manage/apiTokens.js';
+import * as apiManageFolders from '../../functions/api/manage/folders.js';
 import * as apiManageList from '../../functions/api/manage/list.js';
 import * as apiManageQuota from '../../functions/api/manage/quota.js';
 import * as apiPublicList from '../../functions/api/public/list.js';
-import * as uploadHuggingfaceCommitUpload from '../../functions/upload/huggingface/commitUpload.js';
-import * as uploadHuggingfaceCompleteMultipart from '../../functions/upload/huggingface/completeMultipart.js';
-import * as uploadHuggingfaceGetUploadUrl from '../../functions/upload/huggingface/getUploadUrl.js';
 import * as apiChannels from '../../functions/api/channels.js';
-import * as apiDirectoryTree from '../../functions/api/directoryTree.js';
-import * as apiFetchRes from '../../functions/api/fetchRes.js';
+import * as apiRandom_index from '../../functions/api/random/index.js';
+import * as apiUpload_index from '../../functions/api/upload/index.js';
 import * as apiUserConfig from '../../functions/api/userConfig.js';
-import * as random_index from '../../functions/random/index.js';
-import * as upload_index from '../../functions/upload/index.js';
 import * as apiManageDeleteCatchAll from '../../functions/api/manage/delete/[[path]].js';
 import * as apiManageMetadataCatchAll from '../../functions/api/manage/metadata/[[path]].js';
 import * as apiManageMoveCatchAll from '../../functions/api/manage/move/[[path]].js';
 import * as apiManageRenameCatchAll from '../../functions/api/manage/rename/[[path]].js';
 import * as apiManageTagsCatchAll from '../../functions/api/manage/tags/[[path]].js';
-import * as davCatchAll from '../../functions/dav/[[path]].js';
-import * as fileCatchAll from '../../functions/file/[[path]].js';
+import * as apiDavCatchAll from '../../functions/api/dav/[[path]].js';
+import * as apiFileCatchAll from '../../functions/api/file/[[path]].js';
 
 
 // ==================== 自动生成的路由表 ====================
@@ -64,37 +66,39 @@ const routes = [
     { path: '/api/manage/batch/restore/chunk', module: apiManageBatchRestoreChunk, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/batch/list', module: apiManageBatchList, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/batch/settings', module: apiManageBatchSettings, middlewares: [mw_api, mw_api_manage] },
+    { path: '/api/manage/cache/purge', module: apiManageCachePurge, middlewares: [mw_api, mw_api_manage] },
+    { path: '/api/manage/folders/list', module: apiManageFoldersList, middlewares: [mw_api, mw_api_manage] },
+    { path: '/api/manage/folders/tree', module: apiManageFoldersTree, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/sysConfig/others', module: apiManageSysConfigOthers, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/sysConfig/page', module: apiManageSysConfigPage, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/sysConfig/security', module: apiManageSysConfigSecurity, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/sysConfig/upload', module: apiManageSysConfigUpload, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/tags/autocomplete', module: apiManageTagsAutocomplete, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/tags/batch', module: apiManageTagsBatch, middlewares: [mw_api, mw_api_manage] },
+    { path: '/api/upload/huggingface/commitUpload', module: apiUploadHuggingfaceCommitUpload, middlewares: [mw_api, mw_api_upload] },
+    { path: '/api/upload/huggingface/completeMultipart', module: apiUploadHuggingfaceCompleteMultipart, middlewares: [mw_api, mw_api_upload] },
+    { path: '/api/upload/huggingface/getUploadUrl', module: apiUploadHuggingfaceGetUploadUrl, middlewares: [mw_api, mw_api_upload] },
     { path: '/api/auth/login', module: apiAuthLogin, middlewares: [mw_api] },
     { path: '/api/auth/logout', module: apiAuthLogout, middlewares: [mw_api] },
     { path: '/api/auth/resetAuth', module: apiAuthResetAuth, middlewares: [mw_api] },
     { path: '/api/auth/sessionCheck', module: apiAuthSessionCheck, middlewares: [mw_api] },
     { path: '/api/bing/wallpaper', module: apiBingWallpaper_index, middlewares: [mw_api] },
     { path: '/api/manage/apiTokens', module: apiManageApiTokens, middlewares: [mw_api, mw_api_manage] },
+    { path: '/api/manage/folders', module: apiManageFolders, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/list', module: apiManageList, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/quota', module: apiManageQuota, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/public/list', module: apiPublicList, middlewares: [mw_api] },
-    { path: '/upload/huggingface/commitUpload', module: uploadHuggingfaceCommitUpload, middlewares: [mw_upload] },
-    { path: '/upload/huggingface/completeMultipart', module: uploadHuggingfaceCompleteMultipart, middlewares: [mw_upload] },
-    { path: '/upload/huggingface/getUploadUrl', module: uploadHuggingfaceGetUploadUrl, middlewares: [mw_upload] },
     { path: '/api/channels', module: apiChannels, middlewares: [mw_api] },
-    { path: '/api/directoryTree', module: apiDirectoryTree, middlewares: [mw_api] },
-    { path: '/api/fetchRes', module: apiFetchRes, middlewares: [mw_api] },
+    { path: '/api/random', module: apiRandom_index, middlewares: [mw_api, mw_api_random] },
+    { path: '/api/upload', module: apiUpload_index, middlewares: [mw_api, mw_api_upload] },
     { path: '/api/userConfig', module: apiUserConfig, middlewares: [mw_api] },
-    { path: '/random', module: random_index, middlewares: [mw_random] },
-    { path: '/upload', module: upload_index, middlewares: [mw_upload] },
     { path: '/api/manage/delete/', module: apiManageDeleteCatchAll, middlewares: [mw_api, mw_api_manage], catchAll: true },
     { path: '/api/manage/metadata/', module: apiManageMetadataCatchAll, middlewares: [mw_api, mw_api_manage], catchAll: true },
     { path: '/api/manage/move/', module: apiManageMoveCatchAll, middlewares: [mw_api, mw_api_manage], catchAll: true },
     { path: '/api/manage/rename/', module: apiManageRenameCatchAll, middlewares: [mw_api, mw_api_manage], catchAll: true },
     { path: '/api/manage/tags/', module: apiManageTagsCatchAll, middlewares: [mw_api, mw_api_manage], catchAll: true },
-    { path: '/dav/', module: davCatchAll, middlewares: [mw_dav], catchAll: true },
-    { path: '/file/', module: fileCatchAll, middlewares: [mw_file], catchAll: true },
+    { path: '/api/dav/', module: apiDavCatchAll, middlewares: [mw_api, mw_api_dav], catchAll: true },
+    { path: '/api/file/', module: apiFileCatchAll, middlewares: [mw_api, mw_api_file], catchAll: true },
 ];
 
 

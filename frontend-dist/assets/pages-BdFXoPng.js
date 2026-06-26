@@ -1,1 +1,0 @@
-import{A as e,N as t,g as n,y as r}from"./vue.runtime.esm-bundler-tbDdj8EW.js";import{At as i}from"./index-i7GPcJqC.js";var a=r({__name:`index`,setup(r){let a=i();return e(()=>{a.push(`/upload`)}),(e,r)=>(t(),n(`div`))}});export{a as default};
