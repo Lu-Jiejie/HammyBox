@@ -132,9 +132,10 @@ export async function onRequestPost(context) {
         const returnLink = `/api/file/${fullId}`;
         return createResponse(JSON.stringify({
             success: true,
-            src: returnLink,
-            fileUrl,
-            fullId
+            data: {
+                src: returnLink,
+                fileId: fullId
+            }
         }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' }

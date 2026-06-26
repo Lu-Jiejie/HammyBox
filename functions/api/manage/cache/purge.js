@@ -32,8 +32,8 @@ export async function onRequest(context) {
     }
 
     // 鉴权：需要管理员权限
-    const authResult = await authenticate(request, env);
-    if (!authResult.authenticated) {
+    const { authorized } = await authenticate({ env, request });
+    if (!authorized) {
         return new Response(JSON.stringify({
             success: false,
             message: 'Unauthorized',

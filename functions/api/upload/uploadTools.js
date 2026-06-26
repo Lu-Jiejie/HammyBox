@@ -110,13 +110,16 @@ export function sanitizeUploadFolder(folder) {
         return '';
     }
 
-    // 防止编码绕过：如果检测到 URL 编码字符（%XX），先解码再处理
-    // 注意：url.searchParams.get() 已经做过一次解码，这里是为了防御双重编码攻击（如 %252e%252e）
-    if (/%[0-9a-fA-F]{2}/.test(folder)) {
+    // 防止编码绕过：循环解码直到字符串不再包含 URL 编码
+    // 防御多重编码攻击（如 %252e%252e%252f 表示 ./ 的三重编码）
+    let maxDecodeIterations = 5;
+    while (maxDecodeIterations-- > 0 && /%[0-9a-fA-F]{2}/.test(folder)) {
         try {
-            folder = decodeURIComponent(folder);
+            const decoded = decodeURIComponent(folder);
+            if (decoded === folder) break; // 解码没有变化，防止死循环
+            folder = decoded;
         } catch (e) {
-            // 解码失败（如 %zz 等非法编码）则使用原始值
+            break; // 解码失败则停止
         }
     }
 
@@ -410,6 +413,13 @@ export async function buildUniqueFileId(context, fileName, fileType = 'applicati
             const shortId = generateShortId(8);
             const testFullId = normalizedFolder ? `${normalizedFolder}/${shortId}.${fileExt}` : `${shortId}.${fileExt}`;
             if (await db.get(testFullId) === null) {
+                // 尝试原子性占位，防止并发使用同一ID
+                try {
+                    await db.put(testFullId, '', { expirationTtl: 300 });
+                } catch {
+                    // 如果占位写入失败，继续尝试下一个ID
+                    continue;
+                }
                 return testFullId;
             }
         }
@@ -419,6 +429,8 @@ export async function buildUniqueFileId(context, fileName, fileType = 'applicati
 
     // 检查基础ID是否已存在
     if (await db.get(baseId) === null) {
+        // 原子性占位，防止并发使用同一ID
+        try { await db.put(baseId, '', { expirationTtl: 300 }); } catch { /* 占位失败则由调用方决定 */ }
         return baseId;
     }
 
@@ -449,6 +461,8 @@ export async function buildUniqueFileId(context, fileName, fileType = 'applicati
 
         // 检查新ID是否已存在
         if (await db.get(duplicateId) === null) {
+            // 原子性占位，防止并发使用同一ID
+            try { await db.put(duplicateId, '', { expirationTtl: 300 }); } catch { /* 占位失败则由调用方决定 */ }
             return duplicateId;
         }
 

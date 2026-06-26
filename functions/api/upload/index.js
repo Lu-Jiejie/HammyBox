@@ -180,13 +180,19 @@ async function processFileUpload(context, formdata = null) {
     // 获取文件信息
     const time = new Date().getTime();
     const file = formdata.get('file');
+
+    // 检查文件是否存在（必须在访问属性之前检查）
+    if (!file) {
+        return createErrorResponse('No file provided in upload request', 'FILE_MISSING', 400);
+    }
+
     const fileType = file.type;
     let fileName = file.name;
     const fileSizeBytes = file.size; // 文件大小，单位字节
     const fileSize = (fileSizeBytes / 1024 / 1024).toFixed(2); // 文件大小，单位MB
 
-    // 检查fileType和fileName是否存在
-    if (fileType === null || fileType === undefined || fileName === null || fileName === undefined) {
+    // 检查fileType和fileName是否有效
+    if (!fileType || !fileName) {
         return createErrorResponse('fileType or fileName is wrong, check the integrity of this file', 'INVALID_FILE', 400);
     }
 

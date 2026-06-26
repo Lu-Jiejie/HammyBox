@@ -1402,7 +1402,13 @@ export async function uploadLargeFileToTelegram(context, file, fullId, metadata,
         waitUntil(endUpload(context, fullId, metadata));
 
         return createResponse(
-            JSON.stringify([{ 'src': returnLink }]),
+            JSON.stringify({
+                success: true,
+                data: {
+                    src: returnLink,
+                    fileId: fullId
+                }
+            }),
             {
                 status: 200,
                 headers: {
@@ -1412,7 +1418,7 @@ export async function uploadLargeFileToTelegram(context, file, fullId, metadata,
         );
 
     } catch (error) {
-        return createResponse(`Telegram Channel Error: Large file upload failed - ${error.message}`, { status: 500 });
+        return createErrorResponse(`Telegram Channel Error: Large file upload failed - ${error.message}`, 'TELEGRAM_UPLOAD_FAILED', 500);
     }
 }
 
