@@ -25,6 +25,7 @@ export type {
   AnyChannel,
   ChannelGroup,
   UploadChannelGroups,
+  ChannelGroupKey,
 } from './channel';
 export type {
   UploadConfig,

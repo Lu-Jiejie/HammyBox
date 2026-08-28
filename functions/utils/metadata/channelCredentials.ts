@@ -1,7 +1,18 @@
 import { findConfiguredChannel, loadChannelConfig } from './channelConfig.js';
 import { normalizeWebDAVHeaders } from '../storage/webdavAPI.js';
+import type { FileMetadata, ChannelGroupKey } from '../../types';
 
-export async function resolveS3Credentials(db, env, metadata = {}) {
+/** 渠道凭据解析结果（统一形状：source 区分 config / missing） */
+export interface ResolvedCredentials {
+  source: 'config' | 'missing';
+  [key: string]: unknown;
+}
+
+export async function resolveS3Credentials(
+  db: { get(key: string): Promise<string | null> },
+  env: unknown,
+  metadata: FileMetadata = {},
+): Promise<ResolvedCredentials> {
   const channel = await loadConfiguredChannel(db, env, 's3', metadata);
   if (channel) {
     return {
@@ -29,7 +40,11 @@ export async function resolveS3Credentials(db, env, metadata = {}) {
   });
 }
 
-export async function resolveTelegramCredentials(db, env, metadata = {}) {
+export async function resolveTelegramCredentials(
+  db: { get(key: string): Promise<string | null> },
+  env: unknown,
+  metadata: FileMetadata = {},
+): Promise<ResolvedCredentials> {
   const channel = await loadConfiguredChannel(db, env, 'telegram', metadata);
   if (channel) {
     return {
@@ -45,11 +60,15 @@ export async function resolveTelegramCredentials(db, env, metadata = {}) {
     botToken: '',
     chatId: '',
     proxyUrl: '',
-    fileId: metadata.TgFileId,
+    fileId: metadata.TelegramFileId,
   });
 }
 
-export async function resolveDiscordCredentials(db, env, metadata = {}) {
+export async function resolveDiscordCredentials(
+  db: { get(key: string): Promise<string | null> },
+  env: unknown,
+  metadata: FileMetadata = {},
+): Promise<ResolvedCredentials> {
   const channel = await loadConfiguredChannel(db, env, 'discord', metadata);
   if (channel) {
     return {
@@ -69,7 +88,11 @@ export async function resolveDiscordCredentials(db, env, metadata = {}) {
   });
 }
 
-export async function resolveHuggingFaceCredentials(db, env, metadata = {}) {
+export async function resolveHuggingFaceCredentials(
+  db: { get(key: string): Promise<string | null> },
+  env: unknown,
+  metadata: FileMetadata = {},
+): Promise<ResolvedCredentials> {
   const channel = await loadConfiguredChannel(db, env, 'huggingface', metadata);
   if (channel) {
     return {
@@ -89,7 +112,11 @@ export async function resolveHuggingFaceCredentials(db, env, metadata = {}) {
   });
 }
 
-export async function resolveWebDAVCredentials(db, env, metadata = {}) {
+export async function resolveWebDAVCredentials(
+  db: { get(key: string): Promise<string | null> },
+  env: unknown,
+  metadata: FileMetadata = {},
+): Promise<ResolvedCredentials> {
   const channel = await loadConfiguredChannel(db, env, 'webdav', metadata);
   if (channel) {
     return {
@@ -115,12 +142,17 @@ export async function resolveWebDAVCredentials(db, env, metadata = {}) {
   });
 }
 
-async function loadConfiguredChannel(db, env, groupName, metadata = {}) {
+async function loadConfiguredChannel<K extends ChannelGroupKey>(
+  db: { get(key: string): Promise<string | null> },
+  env: unknown,
+  groupName: K,
+  metadata: FileMetadata = {},
+) {
   const uploadConfig = await loadChannelConfig(db, env, `${groupName} credentials`);
   return findConfiguredChannel(uploadConfig, groupName, metadata);
 }
 
-function missingCredentials(fields) {
+function missingCredentials(fields: Record<string, unknown>): ResolvedCredentials {
   return {
     source: 'missing',
     ...fields,

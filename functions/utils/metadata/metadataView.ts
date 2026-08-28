@@ -1,8 +1,21 @@
 import { findConfiguredChannel, loadChannelConfig } from './channelConfig.js';
 import { stripConfigDerivedMetadata, stripSensitiveMetadata } from './metadataSecurity.js';
 import { buildWebDAVUrl } from '../storage/webdavAPI.js';
+import type { UploadConfig, FileMetadata } from '../../types';
 
-export async function createMetadataViewContext(db, env) {
+/**
+ * 元数据视图上下文
+ */
+export interface MetadataViewContext {
+  db: { get(key: string): Promise<string | null> };
+  env: unknown;
+  uploadConfig: UploadConfig | null;
+}
+
+export async function createMetadataViewContext(
+  db: { get(key: string): Promise<string | null> },
+  env: unknown,
+): Promise<MetadataViewContext> {
   return {
     db,
     env,
@@ -10,9 +23,14 @@ export async function createMetadataViewContext(db, env) {
   };
 }
 
-export async function buildFileMetadataForManagement(db, env, metadata = {}, viewContext = null) {
-  const context = viewContext || await createMetadataViewContext(db, env);
-  const view = stripConfigDerivedMetadata(stripSensitiveMetadata(metadata));
+export async function buildFileMetadataForManagement(
+  db: { get(key: string): Promise<string | null> },
+  env: unknown,
+  metadata: FileMetadata = {},
+  viewContext: MetadataViewContext | null = null,
+): Promise<Record<string, unknown>> {
+  const context = viewContext || (await createMetadataViewContext(db, env));
+  const view = stripConfigDerivedMetadata(stripSensitiveMetadata(metadata as Record<string, unknown>));
 
   enrichS3Metadata(context, metadata, view);
   enrichHuggingFaceMetadata(context, metadata, view);
@@ -21,14 +39,23 @@ export async function buildFileMetadataForManagement(db, env, metadata = {}, vie
   return view;
 }
 
-export async function serializeFileRecordForManagement(db, env, file, viewContext = null) {
+export async function serializeFileRecordForManagement(
+  db: { get(key: string): Promise<string | null> },
+  env: unknown,
+  file: { id: string; name?: string; metadata?: FileMetadata },
+  viewContext: MetadataViewContext | null = null,
+): Promise<{ name: string; metadata: Record<string, unknown> }> {
   return {
     name: file.id || file.name,
-    metadata: await buildFileMetadataForManagement(db, env, file.metadata, viewContext),
+    metadata: await buildFileMetadataForManagement(db, env, file.metadata || {}, viewContext),
   };
 }
 
-function enrichS3Metadata(context, sourceMetadata, view) {
+function enrichS3Metadata(
+  context: MetadataViewContext,
+  sourceMetadata: FileMetadata,
+  view: Record<string, unknown>,
+): void {
   if (sourceMetadata?.Channel !== 'S3') return;
 
   try {
@@ -54,11 +81,15 @@ function enrichS3Metadata(context, sourceMetadata, view) {
       view.S3CdnFileUrl = buildCdnFileUrl(credentials.cdnDomain, credentials.key);
     }
   } catch (error) {
-    console.warn('Failed to enrich S3 metadata:', error.message);
+    console.warn('Failed to enrich S3 metadata:', (error as Error).message);
   }
 }
 
-function enrichHuggingFaceMetadata(context, sourceMetadata, view) {
+function enrichHuggingFaceMetadata(
+  context: MetadataViewContext,
+  sourceMetadata: FileMetadata,
+  view: Record<string, unknown>,
+): void {
   if (sourceMetadata?.Channel !== 'HuggingFace') return;
 
   try {
@@ -69,11 +100,15 @@ function enrichHuggingFaceMetadata(context, sourceMetadata, view) {
       view.HfFileUrl = `https://huggingface.co/datasets/${channel.repo}/resolve/main/${sourceMetadata.HfFilePath}`;
     }
   } catch (error) {
-    console.warn('Failed to enrich HuggingFace metadata:', error.message);
+    console.warn('Failed to enrich HuggingFace metadata:', (error as Error).message);
   }
 }
 
-function enrichWebDAVMetadata(context, sourceMetadata, view) {
+function enrichWebDAVMetadata(
+  context: MetadataViewContext,
+  sourceMetadata: FileMetadata,
+  view: Record<string, unknown>,
+): void {
   if (sourceMetadata?.Channel !== 'WebDAV') return;
 
   try {
@@ -84,11 +119,20 @@ function enrichWebDAVMetadata(context, sourceMetadata, view) {
       view.WebDAVPublicUrl = buildWebDAVUrl(channel.publicUrl, sourceMetadata.WebDAVFilePath);
     }
   } catch (error) {
-    console.warn('Failed to enrich WebDAV metadata:', error.message);
+    console.warn('Failed to enrich WebDAV metadata:', (error as Error).message);
   }
 }
 
-export function buildS3Location(credentials, key) {
+/**
+ * S3 凭据形状（供 buildS3Location 使用）
+ */
+interface S3LocationCredentials {
+  endpoint: string | undefined;
+  bucketName: string | undefined;
+  pathStyle: boolean;
+}
+
+export function buildS3Location(credentials: S3LocationCredentials, key: string): string {
   const endpointHost = stripEndpointProtocol(credentials.endpoint);
   if (!endpointHost || !credentials.bucketName || !key) return '';
 
@@ -99,12 +143,12 @@ export function buildS3Location(credentials, key) {
   return `https://${credentials.bucketName}.${endpointHost}/${key}`;
 }
 
-export function buildCdnFileUrl(cdnDomain, key) {
+export function buildCdnFileUrl(cdnDomain: string | undefined, key: string): string {
   if (!cdnDomain || !key) return '';
   return `${String(cdnDomain).replace(/\/+$/, '')}/${key}`;
 }
 
-function stripEndpointProtocol(endpoint) {
+function stripEndpointProtocol(endpoint: string | undefined): string {
   return String(endpoint || '')
     .trim()
     .replace(/^https?:\/\//i, '')

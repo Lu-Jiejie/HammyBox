@@ -110,3 +110,6 @@ export interface UploadChannelGroups {
   huggingface: ChannelGroup<HuggingFaceChannel>;
   webdav: ChannelGroup<WebDAVChannel>;
 }
+
+/** 渠道分组名（六类） */
+export type ChannelGroupKey = keyof UploadChannelGroups;

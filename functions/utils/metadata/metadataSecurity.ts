@@ -28,7 +28,10 @@ const CONFIG_DERIVED_METADATA_KEYS = [
   'WebDAVPublicUrl',
 ];
 
-export function stripSensitiveMetadata(metadata = {}) {
+/**
+ * 从元数据中剔除敏感字段（返回副本）
+ */
+export function stripSensitiveMetadata(metadata: Record<string, unknown> = {}): Record<string, unknown> {
   if (!metadata || typeof metadata !== 'object') {
     return metadata;
   }
@@ -37,7 +40,10 @@ export function stripSensitiveMetadata(metadata = {}) {
   return stripSensitiveMetadataInPlace(stripped);
 }
 
-export function stripSensitiveMetadataInPlace(metadata = {}) {
+/**
+ * 从元数据中剔除敏感字段（原地修改）
+ */
+export function stripSensitiveMetadataInPlace(metadata: Record<string, unknown> = {}): Record<string, unknown> {
   if (!metadata || typeof metadata !== 'object') {
     return metadata;
   }
@@ -58,7 +64,10 @@ export function stripSensitiveMetadataInPlace(metadata = {}) {
   return metadata;
 }
 
-export function stripConfigDerivedMetadata(metadata = {}) {
+/**
+ * 剔除由渠道配置派生的字段（返回副本）
+ */
+export function stripConfigDerivedMetadata(metadata: Record<string, unknown> = {}): Record<string, unknown> {
   if (!metadata || typeof metadata !== 'object') {
     return metadata;
   }
@@ -67,7 +76,10 @@ export function stripConfigDerivedMetadata(metadata = {}) {
   return stripConfigDerivedMetadataInPlace(stripped);
 }
 
-export function stripConfigDerivedMetadataInPlace(metadata = {}) {
+/**
+ * 剔除由渠道配置派生的字段（原地修改）
+ */
+export function stripConfigDerivedMetadataInPlace(metadata: Record<string, unknown> = {}): Record<string, unknown> {
   if (!metadata || typeof metadata !== 'object') {
     return metadata;
   }
@@ -79,7 +91,10 @@ export function stripConfigDerivedMetadataInPlace(metadata = {}) {
   return metadata;
 }
 
-export function cleanPersistedMetadata(metadata = {}) {
+/**
+ * 清理持久化前的元数据（返回副本）：剔除敏感与配置派生字段
+ */
+export function cleanPersistedMetadata(metadata: Record<string, unknown> = {}): Record<string, unknown> {
   if (!metadata || typeof metadata !== 'object') {
     return metadata;
   }
@@ -88,15 +103,18 @@ export function cleanPersistedMetadata(metadata = {}) {
   return cleanPersistedMetadataInPlace(cleaned);
 }
 
-export function cleanPersistedMetadataInPlace(metadata = {}) {
+/**
+ * 清理持久化前的元数据（原地修改）：剔除敏感与配置派生字段
+ */
+export function cleanPersistedMetadataInPlace(metadata: Record<string, unknown> = {}): Record<string, unknown> {
   stripSensitiveMetadataInPlace(metadata);
   stripConfigDerivedMetadataInPlace(metadata);
   return metadata;
 }
 
-function stripUrlUserinfo(value) {
+function stripUrlUserinfo(value: unknown): string {
   try {
-    const url = new URL(value);
+    const url = new URL(String(value));
     url.username = '';
     url.password = '';
     return url.toString();
