@@ -7,7 +7,19 @@ import {
 import { addFileToIndex } from '../../utils/indexManager.js';
 import { getDatabase } from '../../utils/databaseAdapter.js';
 import { normalizeFolderPath } from '../../utils/pathNormalizer.js';
-import type { Env, FileMetadata, PagesContext } from '../../types';
+import type { Env, FileMetadata, PagesContext, SecurityConfig, UploadConfig } from '../../types';
+
+/**
+ * 上传流程上下文：PagesContext 基础上由 upload/index 在运行时注入的字段
+ * （url / securityConfig / uploadConfig / formdata / specifiedChannelName）
+ */
+export type UploadContext = PagesContext & {
+  url: URL;
+  securityConfig?: SecurityConfig;
+  uploadConfig?: UploadConfig;
+  formdata: FormData;
+  specifiedChannelName?: string | null;
+};
 
 // 统一的响应创建函数
 export function createResponse(body: BodyInit | null, options: ResponseInit = {}): Response {
