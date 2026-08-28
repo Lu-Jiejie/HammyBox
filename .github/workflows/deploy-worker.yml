@@ -1,15 +1,20 @@
 name: Deploy to Cloudflare Workers
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       worker_name:
         description: 'Worker Name'
         required: false
         default: 'hammybox'
+      build_frontend:
+        description: '是否构建最新前端（选 no 则复用上次成功构建的 frontend-dist）'
+        type: choice
+        required: true
+        default: 'yes'
+        options:
+          - 'yes'
+          - 'no'
 
 # 所有配置均通过 Secrets 传入（public 仓库的 Variables 对所有人可见，不安全）
 #
@@ -62,6 +67,48 @@ jobs:
       - name: Typecheck
         if: steps.check.outputs.skip != 'true'
         run: npx tsc --noEmit
+
+      # ── 前端构建（可复用的逻辑，yes/no 都经过此步骤）──
+      # yes：构建最新前端并上传产物；no：优先下载上次产物，没有则回退构建
+      - name: Build frontend (download previous artifact when build_frontend=no)
+        if: steps.check.outputs.skip != 'true' && inputs.build_frontend == 'no'
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend-dist
+
+      - name: Build frontend
+        if: steps.check.outputs.skip != 'true'
+        id: build
+        run: |
+          # build_frontend=no 时若已下载到产物则跳过构建
+          if [ "${{ inputs.build_frontend }}" = "no" ] && [ -f "frontend-dist/index.html" ]; then
+            echo "Reusing previous frontend-dist artifact"
+            exit 0
+          fi
+
+          echo "Building frontend from source..."
+          rm -rf frontend-src frontend-dist
+          git clone --depth 1 https://github.com/Lu-Jiejie/HammyBox-Frontend.git frontend-src
+          cd frontend-src
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm run build
+          cd ..
+          # 前端构建产物目录默认是 dist/，复制为 frontend-dist
+          cp -r frontend-src/dist frontend-dist
+          echo "Frontend built successfully"
+
+      - name: Upload frontend artifact
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend-dist/
+          retention-days: 90
+          if-no-files-found: error
 
       - name: Generate worker routes
         if: steps.check.outputs.skip != 'true'

@@ -1,6 +1,7 @@
 .wrangler/*
 _worker.bundle
 data/*
+frontend-dist/
 node_modules
 /wrangler.toml
 .DS_Store
