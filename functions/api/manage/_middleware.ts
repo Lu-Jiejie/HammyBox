@@ -1,8 +1,9 @@
-import { authenticate } from "../../utils/auth/authCore.js";
+import { authenticate } from '../../utils/auth/authCore.js';
+import type { PagesContext } from '../../types';
 
 const DEFAULT_MANAGE_CACHE_CONTROL = 'private, no-store, max-age=0';
 
-function withDefaultCacheControl(response) {
+function withDefaultCacheControl(response: Response): Response {
   if (response.headers.has('Cache-Control')) {
     return response;
   }
@@ -17,10 +18,10 @@ function withDefaultCacheControl(response) {
   });
 }
 
-async function errorHandling(context) {
+async function errorHandling(context: PagesContext): Promise<Response> {
   try {
     return withDefaultCacheControl(await context.next());
-  } catch (err) {
+  } catch (err: any) {
     return new Response(`${err.message}\n${err.stack}`, {
       status: 500,
       headers: {
@@ -30,24 +31,24 @@ async function errorHandling(context) {
   }
 }
 
-function UnauthorizedException(reason) {
+function UnauthorizedException(reason: string): Response {
   return new Response(reason, {
     status: 401,
     statusText: 'Unauthorized',
     headers: {
       'Content-Type': 'text/plain;charset=UTF-8',
       'Cache-Control': 'no-store',
-      'Content-Length': reason.length,
+      'Content-Length': String(reason.length),
     },
   });
 }
 
 /**
  * 根据请求路径提取所需权限
- * @param {string} pathname - 请求路径
- * @returns {string} 需要的权限类型
+ * @param pathname - 请求路径
+ * @returns 需要的权限类型
  */
-function extractRequiredPermission(pathname) {
+function extractRequiredPermission(pathname: string): string {
   const pathParts = pathname.toLowerCase().split('/');
 
   if (pathParts.includes('delete')) {
@@ -70,12 +71,12 @@ const corsHeaders = {
   'Access-Control-Max-Age': '86400',
 };
 
-async function authentication(context) {
+async function authentication(context: PagesContext): Promise<Response> {
   // OPTIONS 预检请求不需要鉴权，直接返回 CORS 响应
   if (context.request.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
-      headers: corsHeaders
+      headers: corsHeaders,
     });
   }
 

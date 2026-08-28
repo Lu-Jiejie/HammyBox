@@ -27,6 +27,8 @@ export interface PagesContext {
   data: Record<string, unknown>;
   /** 当前路由的函数路径（generate-routes 注入） */
   functionPath?: string;
+  /** 请求 URL（部分调用方手动注入，如 upload index.js: context.url = url） */
+  url?: URL;
 }
 
 /**
