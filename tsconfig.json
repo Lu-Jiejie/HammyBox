@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types"],
+
+    // JS→TS 增量迁移期配置：允许导入 .js，但不对 .js 文件报错
+    "allowJs": true,
+    "checkJs": false,
+
+    // 迁移阶段先关 strict，全部转完 TS 后单独一个阶段收紧
+    "strict": false,
+    "noImplicitAny": false,
+    "noImplicitThis": false,
+    "useUnknownInCatchVariables": false,
+
+    // 编辑器/类型友好
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "useDefineForClassFields": true,
+
+    // 与 wrangler/esbuild 转译兼容：禁止非"可擦除"语法（enum/namespace/参数属性）
+    "erasableSyntaxOnly": true,
+
+    "paths": {
+      "@/*": ["./functions/*"]
+    }
+  },
+  "include": ["functions/**/*.ts", "functions/**/*.js"],
+  "exclude": ["node_modules", "old", "frontend-dist", "data", ".npm-cache", "deploy"]
+}

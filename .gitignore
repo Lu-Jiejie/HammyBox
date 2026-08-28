@@ -16,3 +16,4 @@ docs/
 temp/
 temps/
 old/
+.npm-cache/
