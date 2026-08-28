@@ -1,20 +1,20 @@
 import { findConfiguredChannel, loadChannelConfig } from './channelConfig.js';
 import { stripConfigDerivedMetadata, stripSensitiveMetadata } from './metadataSecurity.js';
 import { buildWebDAVUrl } from '../storage/webdavAPI.js';
-import type { UploadConfig, FileMetadata } from '../../types';
+import type { UploadConfig, FileMetadata, Env } from '../../types';
 
 /**
  * 元数据视图上下文
  */
 export interface MetadataViewContext {
   db: { get(key: string): Promise<string | null> };
-  env: unknown;
+  env: Env;
   uploadConfig: UploadConfig | null;
 }
 
 export async function createMetadataViewContext(
   db: { get(key: string): Promise<string | null> },
-  env: unknown,
+  env: Env,
 ): Promise<MetadataViewContext> {
   return {
     db,
@@ -25,7 +25,7 @@ export async function createMetadataViewContext(
 
 export async function buildFileMetadataForManagement(
   db: { get(key: string): Promise<string | null> },
-  env: unknown,
+  env: Env,
   metadata: FileMetadata = {},
   viewContext: MetadataViewContext | null = null,
 ): Promise<Record<string, unknown>> {
@@ -41,7 +41,7 @@ export async function buildFileMetadataForManagement(
 
 export async function serializeFileRecordForManagement(
   db: { get(key: string): Promise<string | null> },
-  env: unknown,
+  env: Env,
   file: { id: string; name?: string; metadata?: FileMetadata },
   viewContext: MetadataViewContext | null = null,
 ): Promise<{ name: string; metadata: Record<string, unknown> }> {

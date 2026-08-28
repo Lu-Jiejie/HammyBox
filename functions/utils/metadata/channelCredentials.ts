@@ -1,6 +1,6 @@
 import { findConfiguredChannel, loadChannelConfig } from './channelConfig.js';
 import { normalizeWebDAVHeaders } from '../storage/webdavAPI.js';
-import type { FileMetadata, ChannelGroupKey } from '../../types';
+import type { FileMetadata, ChannelGroupKey, Env } from '../../types';
 
 /** 渠道凭据解析结果（统一形状：source 区分 config / missing） */
 export interface ResolvedCredentials {
@@ -10,7 +10,7 @@ export interface ResolvedCredentials {
 
 export async function resolveS3Credentials(
   db: { get(key: string): Promise<string | null> },
-  env: unknown,
+  env: Env,
   metadata: FileMetadata = {},
 ): Promise<ResolvedCredentials> {
   const channel = await loadConfiguredChannel(db, env, 's3', metadata);
@@ -42,7 +42,7 @@ export async function resolveS3Credentials(
 
 export async function resolveTelegramCredentials(
   db: { get(key: string): Promise<string | null> },
-  env: unknown,
+  env: Env,
   metadata: FileMetadata = {},
 ): Promise<ResolvedCredentials> {
   const channel = await loadConfiguredChannel(db, env, 'telegram', metadata);
@@ -66,7 +66,7 @@ export async function resolveTelegramCredentials(
 
 export async function resolveDiscordCredentials(
   db: { get(key: string): Promise<string | null> },
-  env: unknown,
+  env: Env,
   metadata: FileMetadata = {},
 ): Promise<ResolvedCredentials> {
   const channel = await loadConfiguredChannel(db, env, 'discord', metadata);
@@ -90,7 +90,7 @@ export async function resolveDiscordCredentials(
 
 export async function resolveHuggingFaceCredentials(
   db: { get(key: string): Promise<string | null> },
-  env: unknown,
+  env: Env,
   metadata: FileMetadata = {},
 ): Promise<ResolvedCredentials> {
   const channel = await loadConfiguredChannel(db, env, 'huggingface', metadata);
@@ -114,7 +114,7 @@ export async function resolveHuggingFaceCredentials(
 
 export async function resolveWebDAVCredentials(
   db: { get(key: string): Promise<string | null> },
-  env: unknown,
+  env: Env,
   metadata: FileMetadata = {},
 ): Promise<ResolvedCredentials> {
   const channel = await loadConfiguredChannel(db, env, 'webdav', metadata);
@@ -144,7 +144,7 @@ export async function resolveWebDAVCredentials(
 
 async function loadConfiguredChannel<K extends ChannelGroupKey>(
   db: { get(key: string): Promise<string | null> },
-  env: unknown,
+  env: Env,
   groupName: K,
   metadata: FileMetadata = {},
 ) {

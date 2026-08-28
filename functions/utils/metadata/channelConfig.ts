@@ -1,13 +1,13 @@
 import { getUploadConfig } from '../../api/manage/sysConfig/upload.js';
-import type { UploadConfig, FileMetadata, ChannelGroupKey } from '../../types';
+import type { UploadConfig, FileMetadata, ChannelGroupKey, ConfigStore, Env } from '../../types';
 
 export async function loadChannelConfig(
   db: { get(key: string): Promise<string | null> },
-  env: unknown,
+  env: Env,
   logContext = 'channel config',
 ): Promise<UploadConfig | null> {
   try {
-    return await getUploadConfig(db, env);
+    return await getUploadConfig(db as any, env);
   } catch (error) {
     console.warn(`Failed to load upload config for ${logContext}:`, (error as Error).message);
     return null;

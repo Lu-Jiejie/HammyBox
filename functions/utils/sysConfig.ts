@@ -25,7 +25,10 @@ interface IndexContext {
  * @param channels - 渠道列表
  * @returns 过滤后的渠道列表
  */
-async function filterChannelsByQuota(context: IndexContext, channels: AnyChannel[]): Promise<AnyChannel[]> {
+async function filterChannelsByQuota<T extends AnyChannel>(
+  context: IndexContext,
+  channels: T[],
+): Promise<T[]> {
   // 先检查是否有任何渠道启用了容量限制，如果都没启用则跳过 KV 读取
   const hasQuotaEnabled = channels.some(ch => ch.quota?.enabled && ch.quota?.limitGB);
   if (!hasQuotaEnabled) {
@@ -39,7 +42,7 @@ async function filterChannelsByQuota(context: IndexContext, channels: AnyChannel
     { usedMB: number; fileCount: number }
   >;
 
-  const result: AnyChannel[] = [];
+  const result: T[] = [];
   for (const channel of channels) {
     // 未启用容量限制，直接通过
     if (!channel.quota?.enabled || !channel.quota?.limitGB) {
