@@ -1,7 +1,7 @@
 /**
  * Cloudflare Workers 部署适配层（自动生成，请勿手动编辑）
- * 生成命令: node deploy/worker/generate-routes.js
- * 
+ * 生成命令: npx tsx deploy/worker/generate-routes.ts
+ *
  * 复用 functions/ 下的全部业务逻辑，不修改任何业务代码
  */
 
@@ -104,7 +104,7 @@ const routes = [
 
 // ==================== 路由匹配 ====================
 
-function matchRoute(pathname) {
+function matchRoute(pathname: string) {
     for (const route of routes) {
         if (route.catchAll) {
             if (pathname.startsWith(route.path)) {
@@ -124,8 +124,8 @@ function matchRoute(pathname) {
 
 // ==================== 中间件链执行 ====================
 
-function collectMiddlewares(middlewareModules) {
-    const handlers = [];
+function collectMiddlewares(middlewareModules: any[]) {
+    const handlers: any[] = [];
     for (const mod of middlewareModules) {
         if (mod.onRequest) {
             if (Array.isArray(mod.onRequest)) {
@@ -138,7 +138,7 @@ function collectMiddlewares(middlewareModules) {
     return handlers;
 }
 
-function createNextRequest(input, init, baseRequest) {
+function createNextRequest(input: any, init: any, baseRequest: Request) {
     if (input instanceof Request) {
         return init ? new Request(input, init) : input;
     }
@@ -147,10 +147,10 @@ function createNextRequest(input, init, baseRequest) {
     return new Request(url, init);
 }
 
-async function executeChain(middlewares, handler, context) {
+async function executeChain(middlewares: any[], handler: any, context: any) {
     const chain = [...middlewares, handler];
     let index = 0;
-    context.next = async function (input, init) {
+    context.next = async function (input?: any, init?: any) {
         if (input !== undefined) {
             context.request = createNextRequest(input, init, context.request);
         }
@@ -167,7 +167,7 @@ async function executeChain(middlewares, handler, context) {
 // ==================== Worker 入口 ====================
 
 export default {
-    async fetch(request, env, ctx) {
+    async fetch(request: Request, env: any, ctx: any) {
         const url = new URL(request.url);
         const pathname = url.pathname;
 

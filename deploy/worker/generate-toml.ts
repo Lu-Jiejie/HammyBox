@@ -1,13 +1,15 @@
 /**
  * 根据环境变量生成 deploy/worker/wrangler.toml
  * 用于 GitHub Actions 部署，从 Secrets/Variables 读取配置
- * 
+ *
  * 环境变量：
  *   WORKER_NAME      - Worker 名称（默认 hammybox）
  *   D1_DATABASE_ID   - D1 数据库 ID
  *   KV_NAMESPACE_ID  - KV 命名空间 ID
  *   R2_BUCKET_NAME   - R2 存储桶名称
  *   WORKER_VARS      - JSON 格式的业务环境变量
+ *
+ * 使用方式: npx tsx deploy/worker/generate-toml.ts
  */
 
 import { writeFileSync } from 'fs';
@@ -21,7 +23,7 @@ const env = process.env;
 const name = env.WORKER_NAME || 'hammybox';
 
 let toml = `name = "${name}"
-main = "index.js"
+main = "index.ts"
 compatibility_date = "2024-08-21"
 
 [assets]
@@ -32,7 +34,7 @@ not_found_handling = "single-page-application"
 
 // D1 数据库
 if (env.D1_DATABASE_ID) {
-    toml += `
+  toml += `
 [[d1_databases]]
 binding = "hammybox_d1"
 database_name = "hammybox_d1"
@@ -42,7 +44,7 @@ database_id = "${env.D1_DATABASE_ID}"
 
 // KV 命名空间
 if (env.KV_NAMESPACE_ID) {
-    toml += `
+  toml += `
 [[kv_namespaces]]
 binding = "hammybox_kv"
 id = "${env.KV_NAMESPACE_ID}"
@@ -51,7 +53,7 @@ id = "${env.KV_NAMESPACE_ID}"
 
 // R2 存储桶
 if (env.R2_BUCKET_NAME) {
-    toml += `
+  toml += `
 [[r2_buckets]]
 binding = "hammybox_r2"
 bucket_name = "${env.R2_BUCKET_NAME}"
@@ -60,29 +62,29 @@ bucket_name = "${env.R2_BUCKET_NAME}"
 
 // 业务环境变量（从 JSON 解析）
 if (env.WORKER_VARS) {
-    try {
-        const vars = JSON.parse(env.WORKER_VARS);
-        const entries = Object.entries(vars);
-        if (entries.length > 0) {
-            toml += '\n[vars]\n';
-            for (const [key, value] of entries) {
-                toml += `${key} = "${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\n`;
-            }
-        }
-    } catch (e) {
-        console.error('Warning: WORKER_VARS is not valid JSON, skipping:', e.message);
+  try {
+    const vars = JSON.parse(env.WORKER_VARS);
+    const entries = Object.entries(vars);
+    if (entries.length > 0) {
+      toml += '\n[vars]\n';
+      for (const [key, value] of entries) {
+        toml += `${key} = "${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\n`;
+      }
     }
+  } catch (e: any) {
+    console.error('Warning: WORKER_VARS is not valid JSON, skipping:', e.message);
+  }
 }
 
 writeFileSync(outputPath, toml, 'utf8');
 
 // 打印配置（隐藏敏感值）
 const safeToml = toml
-    .replace(/database_id = ".*"/g, 'database_id = "***"')
-    .replace(/(id = )".*"/g, '$1"***"')
-    .replace(/(TOKEN.*= )".*"/gi, '$1"***"')
-    .replace(/(KEY.*= )".*"/gi, '$1"***"')
-    .replace(/(SECRET.*= )".*"/gi, '$1"***"');
+  .replace(/database_id = ".*"/g, 'database_id = "***"')
+  .replace(/(id = )".*"/g, '$1"***"')
+  .replace(/(TOKEN.*= )".*"/gi, '$1"***"')
+  .replace(/(KEY.*= )".*"/gi, '$1"***"')
+  .replace(/(SECRET.*= )".*"/gi, '$1"***"');
 
 console.log('Generated deploy/worker/wrangler.toml:');
 console.log(safeToml);

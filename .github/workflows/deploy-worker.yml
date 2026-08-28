@@ -56,11 +56,16 @@ jobs:
 
       - name: Install dependencies
         if: steps.check.outputs.skip != 'true'
-        run: npm ci --omit=dev --omit=optional
+        # 需要 devDependencies（typescript/tsx）来运行 typecheck 与路由生成
+        run: npm ci
+
+      - name: Typecheck
+        if: steps.check.outputs.skip != 'true'
+        run: npx tsc --noEmit
 
       - name: Generate worker routes
         if: steps.check.outputs.skip != 'true'
-        run: node deploy/worker/generate-routes.js
+        run: npx tsx deploy/worker/generate-routes.ts
 
       - name: Generate wrangler config
         if: steps.check.outputs.skip != 'true'
@@ -70,7 +75,7 @@ jobs:
           KV_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_ID }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
           WORKER_VARS: ${{ secrets.WORKER_VARS }}
-        run: node deploy/worker/generate-toml.js
+        run: npx tsx deploy/worker/generate-toml.ts
 
       - name: Deploy to Cloudflare Workers
         if: steps.check.outputs.skip != 'true'

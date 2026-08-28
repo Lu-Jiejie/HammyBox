@@ -33,6 +33,6 @@
       "@/*": ["./functions/*"]
     }
   },
-  "include": ["functions/**/*.ts", "functions/**/*.js"],
-  "exclude": ["node_modules", "old", "frontend-dist", "data", ".npm-cache", "deploy"]
+  "include": ["functions/**/*.ts", "functions/**/*.js", "deploy/worker/**/*.ts"],
+  "exclude": ["node_modules", "old", "frontend-dist", "data", ".npm-cache", "deploy", "deploy/server"]
 }
