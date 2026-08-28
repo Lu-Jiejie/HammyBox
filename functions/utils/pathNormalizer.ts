@@ -1,7 +1,5 @@
 /**
  * 规范化文件夹路径
- * @param {string} path - 用户输入的路径
- * @returns {string} 规范化后的路径
  *
  * 规则：
  * 1. 空/null/undefined → ""
@@ -24,7 +22,7 @@
  * - "photos/../hack" → "photos/_/hack/"
  * - "photos\2024" → "photos/2024/"
  */
-export function normalizeFolderPath(path) {
+export function normalizeFolderPath(path: string | null | undefined): string {
     if (!path || path === null || path === undefined) return '';
 
     const normalized = String(path).trim()
@@ -43,10 +41,10 @@ export function normalizeFolderPath(path) {
 
 /**
  * 验证路径安全性
- * @param {string} path - 待验证的路径（不含末尾斜杠）
+ * @param path 待验证的路径（不含末尾斜杠）
  * @throws {Error} 如果路径包含非法字符或保留前缀
  */
-export function validatePathSafety(path) {
+export function validatePathSafety(path: string): void {
     // 检查非法字符：冒号、尖括号、引号、问号、星号、管道符
     const illegalChars = /[<>:"|?*]/;
     if (illegalChars.test(path)) {

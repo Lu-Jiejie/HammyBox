@@ -49,7 +49,11 @@ export interface DatabaseAdapter {
     options?: KVReadOptions
   ): Promise<KVEntryWithMeta<string, FileMetadata>>;
   delete(key: string): Promise<unknown>;
-  list(options?: KVListOptions): Promise<{ keys: Array<{ name: string; metadata?: unknown }> }>;
+  list(options?: KVListOptions): Promise<{
+    keys: Array<{ name: string; metadata?: unknown }>;
+    cursor?: string;
+    list_complete?: boolean;
+  }>;
 
   // ===== 文件别名方法（KV 与 D1 均提供） =====
   putFile?(fileId: string, value: string, options?: KVWriteOptions): Promise<unknown>;

@@ -6,10 +6,10 @@
 /**
  * Validate tag format
  * Tags must contain only alphanumeric characters, underscores, and hyphens
- * @param {string} tag - The tag to validate
- * @returns {boolean} - Whether the tag is valid
+ * @param tag The tag to validate
+ * @returns Whether the tag is valid
  */
-export function validateTag(tag) {
+export function validateTag(tag: string): boolean {
     if (!tag || typeof tag !== 'string') {
         return false;
     }
@@ -24,16 +24,16 @@ export function validateTag(tag) {
  * - Trim whitespace
  * - Remove duplicates
  * - Filter out invalid tags
- * @param {string[]} tags - Array of tags to normalize
- * @returns {string[]} - Normalized array of unique tags
+ * @param tags Array of tags to normalize
+ * @returns Normalized array of unique tags
  */
-export function normalizeTags(tags) {
+export function normalizeTags(tags: string[] | unknown): string[] {
     if (!Array.isArray(tags)) {
         return [];
     }
 
     const normalized = tags
-        .filter(tag => tag && typeof tag === 'string')
+        .filter((tag): tag is string => tag && typeof tag === 'string')
         .map(tag => tag.toLowerCase().trim())
         .filter(tag => validateTag(tag));
 
@@ -43,12 +43,16 @@ export function normalizeTags(tags) {
 
 /**
  * Merge tags based on action
- * @param {string[]} existingTags - Current tags on the file
- * @param {string[]} newTags - Tags to add/remove/set
- * @param {string} action - 'set', 'add', or 'remove'
- * @returns {string[]} - Merged tags array
+ * @param existingTags Current tags on the file
+ * @param newTags Tags to add/remove/set
+ * @param action 'set', 'add', or 'remove'
+ * @returns Merged tags array
  */
-export function mergeTags(existingTags, newTags, action) {
+export function mergeTags(
+    existingTags: string[] | unknown,
+    newTags: string[] | unknown,
+    action: 'set' | 'add' | 'remove' | string,
+): string[] {
     const existing = Array.isArray(existingTags) ? existingTags : [];
     const normalized = normalizeTags(newTags);
 
@@ -61,10 +65,11 @@ export function mergeTags(existingTags, newTags, action) {
             // Add new tags to existing, remove duplicates
             return normalizeTags([...existing, ...normalized]);
 
-        case 'remove':
+        case 'remove': {
             // Remove specified tags from existing
             const toRemove = new Set(normalized);
             return existing.filter(tag => !toRemove.has(tag.toLowerCase()));
+        }
 
         default:
             throw new Error(`Invalid action: ${action}. Must be 'set', 'add', or 'remove'`);
@@ -75,38 +80,42 @@ export function mergeTags(existingTags, newTags, action) {
  * Parse search query to extract tags and keywords
  * Input: "vacation #photo #2024"
  * Output: { keywords: "vacation", tags: ["photo", "2024"] }
- * @param {string} searchString - The search query string
- * @returns {Object} - Object with keywords and tags arrays
+ * @param searchString The search query string
+ * @returns Object with keywords and tags arrays
  */
-export function parseSearchQuery(searchString) {
+export function parseSearchQuery(searchString: string): {
+    keywords: string;
+    tags: string[];
+} {
     if (!searchString || typeof searchString !== 'string') {
         return { keywords: '', tags: [] };
     }
 
-    const tags = [];
+    const tags: string[] = [];
 
     const tagRegex = /#([\w\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\.\+\-]+)/g;
 
-    const keywords = searchString.replace(tagRegex, (match, tagContent) => {
-        tags.push(tagContent.toLowerCase()); // 收集 tag
-        return ' '; // 用一个空格替换 tag，避免粘连，稍后统一清洗
-    })
-    .replace(/\s+/g, ' ') // 将中间所有的连续空格合并为一个
-    .trim();
+    const keywords = searchString
+        .replace(tagRegex, (match, tagContent) => {
+            tags.push(tagContent.toLowerCase()); // 收集 tag
+            return ' '; // 用一个空格替换 tag，避免粘连，稍后统一清洗
+        })
+        .replace(/\s+/g, ' ') // 将中间所有的连续空格合并为一个
+        .trim();
 
-    return { 
-        keywords, 
-        tags: normalizeTags(tags)
+    return {
+        keywords,
+        tags: normalizeTags(tags),
     };
 }
 
 /**
  * Check if a file matches tag filter
- * @param {string[]} fileTags - Tags on the file
- * @param {string[]} requiredTags - Tags that must be present
- * @returns {boolean} - Whether file has all required tags
+ * @param fileTags Tags on the file
+ * @param requiredTags Tags that must be present
+ * @returns Whether file has all required tags
  */
-export function matchesTags(fileTags, requiredTags) {
+export function matchesTags(fileTags: string[] | unknown, requiredTags: string[] | unknown): boolean {
     if (!Array.isArray(requiredTags) || requiredTags.length === 0) {
         return true; // No tag filter
     }
@@ -121,19 +130,19 @@ export function matchesTags(fileTags, requiredTags) {
 
 /**
  * Extract all unique tags from an array of files
- * @param {Array} files - Array of file objects with metadata.Tags
- * @returns {string[]} - Sorted array of unique tags
+ * @param files Array of file objects with metadata.Tags
+ * @returns Sorted array of unique tags
  */
-export function extractUniqueTags(files) {
+export function extractUniqueTags(files: unknown): string[] {
     if (!Array.isArray(files)) {
         return [];
     }
 
-    const allTags = new Set();
+    const allTags = new Set<string>();
 
     files.forEach(file => {
         if (file && file.metadata && Array.isArray(file.metadata.Tags)) {
-            file.metadata.Tags.forEach(tag => {
+            file.metadata.Tags.forEach((tag: unknown) => {
                 if (tag && typeof tag === 'string') {
                     allTags.add(tag.toLowerCase().trim());
                 }
@@ -146,12 +155,12 @@ export function extractUniqueTags(files) {
 
 /**
  * Filter tags by prefix (for autocomplete)
- * @param {string[]} tags - Array of all available tags
- * @param {string} prefix - Prefix to filter by
- * @param {number} limit - Maximum number of results
- * @returns {string[]} - Filtered tags
+ * @param tags Array of all available tags
+ * @param prefix Prefix to filter by
+ * @param limit Maximum number of results
+ * @returns Filtered tags
  */
-export function filterTagsByPrefix(tags, prefix, limit = 20) {
+export function filterTagsByPrefix(tags: string[] | unknown, prefix: string, limit = 20): string[] {
     if (!Array.isArray(tags) || !prefix || typeof prefix !== 'string') {
         return [];
     }

@@ -5,11 +5,11 @@
 
 /**
  * 判定 Token 是否已过期
- * @param {string|null} expiresAt - 过期时间 ISO 8601 字符串，null 表示永不过期
- * @param {Date} [now=new Date()] - 当前时间
- * @returns {boolean} 是否已过期
+ * @param expiresAt 过期时间 ISO 8601 字符串，null 表示永不过期
+ * @param now 当前时间
+ * @returns 是否已过期
  */
-export function isExpired(expiresAt, now = new Date()) {
+export function isExpired(expiresAt: string | null | undefined, now: Date | string | number = new Date()): boolean {
   if (expiresAt === null || expiresAt === undefined) {
     return false;
   }
@@ -20,13 +20,16 @@ export function isExpired(expiresAt, now = new Date()) {
 
 /**
  * 过滤出需要自动删除的 Token 并返回保留的 Token 列表
- * @param {Array<Object>} tokens - Token 数组
- * @param {Date} [now=new Date()] - 当前时间
- * @returns {{ toDelete: Array<Object>, toKeep: Array<Object> }}
+ * @param tokens Token 数组
+ * @param now 当前时间
+ * @returns { toDelete, toKeep }
  */
-export function filterAutoDeleteTokens(tokens, now = new Date()) {
-  const toDelete = [];
-  const toKeep = [];
+export function filterAutoDeleteTokens<T extends { expiresAt: string | null; autoDelete?: boolean }>(
+  tokens: T[],
+  now: Date | string | number = new Date(),
+): { toDelete: T[]; toKeep: T[] } {
+  const toDelete: T[] = [];
+  const toKeep: T[] = [];
 
   for (const token of tokens) {
     if (isExpired(token.expiresAt, now) && token.autoDelete === true) {
