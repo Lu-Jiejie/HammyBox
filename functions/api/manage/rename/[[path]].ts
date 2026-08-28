@@ -299,8 +299,7 @@ async function moveWebDAVFile(
   img: { metadata?: unknown },
   newFileId: string,
 ): Promise<Record<string, any>> {
-  const metadata = (img.metadata || {}) as FileMetadata;
-  const oldPath = metadata.WebDAVFilePath;
+  const oldPath = (img.metadata as FileMetadata | undefined)?.WebDAVFilePath;
 
   if (!oldPath) {
     return { success: false, error: 'WebDAV file missing required metadata for move' };

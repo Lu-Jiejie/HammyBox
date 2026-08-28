@@ -50,7 +50,7 @@ export async function serializeFileRecordForManagement(
     metadata: await buildFileMetadataForManagement(
       db,
       env,
-      (file.metadata || {}) as FileMetadata | Record<string, unknown>,
+      file.metadata as FileMetadata | Record<string, unknown> | undefined,
       viewContext,
     ),
   };

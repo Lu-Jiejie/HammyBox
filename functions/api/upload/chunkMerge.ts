@@ -36,11 +36,7 @@ export async function handleChunkMerge(context: UploadContext): Promise<Response
   const formdata = await request.formData();
   context.formdata = formdata;
 
-  let uploadId: string | null = null;
-  let totalChunks = 0;
-  let originalFileName: string | null = null;
-  let originalFileType: string | null = null;
-  let uploadChannel = 'telegram';
+  let uploadId: string | null, totalChunks: number, originalFileName: string | null, originalFileType: string | null, uploadChannel: string;
   try {
     uploadId = formdata.get('uploadId') as string;
     totalChunks = parseInt(formdata.get('totalChunks') as string);

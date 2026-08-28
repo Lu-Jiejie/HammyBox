@@ -164,14 +164,10 @@ async function moveFile(
     // 读取图片信息
     const img = await db.getWithMetadata(fileId);
 
-    if (!img) {
-      throw new Error('File not found');
-    }
-
-    const metadata = (img.metadata || {}) as FileMetadata;
+    const metadata = img.metadata as FileMetadata | undefined;
 
     // 如果是R2渠道的图片，需要移动R2中对应的图片
-    if (metadata.Channel === 'CloudflareR2') {
+    if (metadata?.Channel === 'CloudflareR2') {
       const R2DataBase = env.hammybox_r2;
 
       // 获取原文件内容
@@ -188,7 +184,7 @@ async function moveFile(
     }
 
     // S3 渠道的图片，需要移动S3中对应的图片
-    if (metadata.Channel === 'S3') {
+    if (metadata?.Channel === 'S3') {
       const { success, newKey, error } = await moveS3File(env, img, newFileId);
       if (!success) {
         throw new Error(error || 'S3 Move Failed');
@@ -197,7 +193,7 @@ async function moveFile(
     }
 
     // WebDAV 渠道的图片，需要移动 WebDAV 中对应的文件
-    if (metadata.Channel === 'WebDAV') {
+    if (metadata?.Channel === 'WebDAV') {
       const { success, error } = await moveWebDAVFile(env, img, newFileId);
       if (!success) {
         throw new Error(error || 'WebDAV Move Failed');
@@ -206,7 +202,7 @@ async function moveFile(
     }
 
     // 旧版 Telegram 渠道和 Telegraph 渠道不支持移动
-    if (metadata.Channel === 'Telegram' || metadata.Channel === undefined) {
+    if (metadata?.Channel === 'Telegram' || metadata?.Channel === undefined) {
       throw new Error('Unsupported Channel');
     }
 
@@ -301,8 +297,7 @@ async function moveWebDAVFile(
   img: { metadata?: unknown },
   newFileId: string,
 ): Promise<Record<string, any>> {
-  const metadata = (img.metadata || {}) as FileMetadata;
-  const oldPath = metadata.WebDAVFilePath;
+  const oldPath = (img.metadata as FileMetadata | undefined)?.WebDAVFilePath;
 
   if (!oldPath) {
     return { success: false, error: 'WebDAV file missing required metadata for move' };

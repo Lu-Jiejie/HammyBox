@@ -290,7 +290,7 @@ async function handleTelegramChunkedFile(
 ): Promise<Response> {
   const { env, request, url, Referer } = context;
 
-  const metadata = (imgRecord.metadata || {}) as FileMetadata;
+  const metadata = imgRecord.metadata as FileMetadata | undefined;
   const db = getDatabase(env as Env);
   const tgCredentials = await resolveTelegramCredentials(db, env as Env, metadata);
   const TgBotToken = tgCredentials.botToken as string;
@@ -502,7 +502,7 @@ async function handleDiscordChunkedFile(
 ): Promise<Response> {
   const { env, request, url, Referer } = context;
 
-  const metadata = (imgRecord.metadata || {}) as FileMetadata;
+  const metadata = imgRecord.metadata as FileMetadata | undefined;
   const db = getDatabase(env as Env);
   const discordCredentials = await resolveDiscordCredentials(db, env as Env, metadata);
   const botToken = discordCredentials.botToken as string;

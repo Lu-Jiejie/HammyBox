@@ -13,7 +13,7 @@ let disableTelemetry = false;
 export async function errorHandling(context: PagesContext): Promise<Response> {
   // 读取KV中的设置
   const othersConfig = await fetchOthersConfig(context.env as Env);
-  disableTelemetry = !othersConfig.telemetry?.enabled;
+  disableTelemetry = !othersConfig.telemetry.enabled;
 
   const env = context.env as Env;
   if (!disableTelemetry) {
@@ -45,7 +45,7 @@ export async function errorHandling(context: PagesContext): Promise<Response> {
 export async function telemetryData(context: PagesContext): Promise<Response> {
   // 读取KV中的设置
   const othersConfig = await fetchOthersConfig(context.env as Env);
-  disableTelemetry = !othersConfig.telemetry?.enabled;
+  disableTelemetry = !othersConfig.telemetry.enabled;
 
   if (!disableTelemetry) {
     try {

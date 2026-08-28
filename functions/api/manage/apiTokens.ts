@@ -281,7 +281,10 @@ export async function getTokenPermissions(db: ConfigStore, token: string): Promi
 }
 
 // 根据Token获取完整数据对象（供tokenValidator使用）
-export async function getTokenData(db: ConfigStore, token: string): Promise<ApiToken | null> {
+export async function getTokenData(
+  db: ConfigStore,
+  token: string,
+): Promise<Omit<ApiToken, 'type'> | null> {
   const settingsStr = await db.get('manage@sysConfig@security');
   const settings: any = settingsStr ? JSON.parse(settingsStr) : {};
   const tokens = settings.apiTokens?.tokens || {};
@@ -300,7 +303,6 @@ export async function getTokenData(db: ConfigStore, token: string): Promise<ApiT
         updatedAt: t.updatedAt,
         expiresAt: t.expiresAt ?? null,
         autoDelete: t.autoDelete ?? false,
-        type: t.type ?? 'user',
       };
     }
   }

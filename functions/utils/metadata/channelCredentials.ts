@@ -107,7 +107,7 @@ export async function resolveTelegramCredentials(
     botToken: '',
     chatId: '',
     proxyUrl: '',
-    fileId: metadata.TelegramFileId,
+    fileId: metadata.TgFileId,
   }) as TelegramCredentials;
 }
 

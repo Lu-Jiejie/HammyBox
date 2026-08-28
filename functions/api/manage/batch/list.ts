@@ -44,13 +44,12 @@ function errorResponse(message: string, status = 400): Response {
  * @param metadata - 文件元数据
  * @returns 是否需要读取 value
  */
-function isChunkedFileNeedingValue(metadata: unknown): boolean {
-  const meta = (metadata || {}) as FileMetadata;
-  if (!meta.IsChunked) {
+function isChunkedFileNeedingValue(metadata: FileMetadata | unknown): boolean {
+  if (!metadata || !(metadata as FileMetadata).IsChunked) {
     return false;
   }
 
-  const channel = meta.Channel;
+  const channel = (metadata as FileMetadata).Channel;
   return channel === 'Telegram' || channel === 'TelegramNew' || channel === 'Discord';
 }
 

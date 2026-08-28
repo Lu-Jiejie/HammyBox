@@ -168,31 +168,31 @@ async function deleteFile(
       return true;
     }
 
-    const metadata = (img.metadata || {}) as FileMetadata;
+    const metadata = img.metadata as FileMetadata | undefined;
 
     // 如果是R2渠道的图片，需要删除R2中对应的图片
-    if (metadata.Channel === 'CloudflareR2') {
+    if (metadata?.Channel === 'CloudflareR2') {
       const R2DataBase = env.hammybox_r2;
       await R2DataBase.delete(fileId);
     }
 
     // S3 渠道的图片，需要删除S3中对应的图片
-    if (metadata.Channel === 'S3') {
+    if (metadata?.Channel === 'S3') {
       await deleteS3File(env, img);
     }
 
     // Discord 渠道的图片，需要删除 Discord 中对应的消息
-    if (metadata.Channel === 'Discord') {
+    if (metadata?.Channel === 'Discord') {
       await deleteDiscordFile(env, img);
     }
 
     // HuggingFace 渠道的图片，需要删除 HuggingFace 中对应的文件
-    if (metadata.Channel === 'HuggingFace') {
+    if (metadata?.Channel === 'HuggingFace') {
       await deleteHuggingFaceFile(env, img);
     }
 
     // WebDAV 渠道的图片，需要删除 WebDAV 中对应的文件
-    if (metadata.Channel === 'WebDAV') {
+    if (metadata?.Channel === 'WebDAV') {
       await deleteWebDAVFile(env, img);
     }
 
@@ -306,8 +306,7 @@ async function deleteHuggingFaceFile(env: Env, img: { metadata?: unknown }): Pro
 
 // 删除 WebDAV 渠道的图片
 async function deleteWebDAVFile(env: Env, img: { metadata?: unknown }): Promise<boolean> {
-  const metadata = (img.metadata || {}) as FileMetadata;
-  const filePath = metadata.WebDAVFilePath;
+  const filePath = (img.metadata as FileMetadata | undefined)?.WebDAVFilePath;
 
   if (!filePath) {
     console.warn('WebDAV file missing required metadata for deletion');

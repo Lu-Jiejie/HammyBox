@@ -16,7 +16,8 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
 
   // 读取安全设置
   const securityConfig = await fetchSecurityConfig(env);
-  const rightPassword = securityConfig.auth?.password || '';
+  // 注意：与 JS 原版保持一致，auth 未配置时此处直接访问会抛错（500）
+  const rightPassword = securityConfig.auth!.password;
 
   const passwordConfigured = !!(rightPassword && rightPassword.trim());
 
