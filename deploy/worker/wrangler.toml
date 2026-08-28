@@ -11,7 +11,7 @@
 # 无需手动编辑。详见 .github/workflows/deploy-worker.yml
 
 name = "hammybox"
-main = "index.js"
+main = "index.ts"
 compatibility_date = "2024-08-21"
 
 # 静态资源（前端文件）
