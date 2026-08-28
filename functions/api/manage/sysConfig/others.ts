@@ -1,5 +1,6 @@
 import { getDatabase } from '../../../utils/databaseAdapter.js';
 import { createApiToken, deleteApiToken } from '../apiTokens.js';
+import { invalidateConfigCache } from '../../../utils/sysConfig.js';
 import type { Env, ConfigStore, OthersConfig } from '../../../types';
 
 export async function onRequest(context: {
@@ -66,6 +67,8 @@ export async function onRequest(context: {
 
     // 写入数据库
     await db.put('manage@sysConfig@others', JSON.stringify(settings));
+    // 配置变更，立即失效缓存
+    invalidateConfigCache();
 
     return new Response(JSON.stringify(settings), {
       headers: {

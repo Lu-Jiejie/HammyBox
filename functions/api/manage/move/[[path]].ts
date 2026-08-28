@@ -150,8 +150,8 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   }
 }
 
-// 移动单个文件的核心函数
-async function moveFile(
+// 移动单个文件的核心函数（导出供批量移动路由复用）
+export async function moveFile(
   env: Env,
   fileId: string,
   newFileId: string,

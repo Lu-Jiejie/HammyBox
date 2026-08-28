@@ -20,6 +20,38 @@ interface IndexContext {
 }
 
 /**
+ * 配置短 TTL 缓存。
+ *
+ * Cloudflare Workers/Pages 中每次请求可能复用同一 isolate，模块级变量跨请求存活。
+ * 系统配置（上传渠道/安全/其他/页面）写入频率极低，但读频率很高
+ * （上传的每个分块、每次列表、每次鉴权都会触发）。缓存 10 秒可大幅减少 KV 读取，
+ * 同时保证配置变更（保存后）最多 10 秒内生效。
+ *
+ * 保存配置的接口在写入 KV 后调用 invalidateConfigCache() 立即失效缓存。
+ */
+const CONFIG_CACHE_TTL_MS = 10_000;
+
+const configCache = new Map<string, { value: unknown; expiresAt: number }>();
+
+/**
+ * 使配置缓存失效（保存配置后调用，保证新配置立即生效）。
+ */
+export function invalidateConfigCache(): void {
+  configCache.clear();
+}
+
+async function cachedFetch<T>(key: string, loader: () => Promise<T>): Promise<T> {
+  const cached = configCache.get(key);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.value as T;
+  }
+  const value = await loader();
+  configCache.set(key, { value, expiresAt: now + CONFIG_CACHE_TTL_MS });
+  return value;
+}
+
+/**
  * 根据容量限制过滤渠道
  * @param context - 上下文对象（包含 env）
  * @param channels - 渠道列表
@@ -76,7 +108,7 @@ async function filterChannelsByQuota<T extends AnyChannel>(
 }
 
 export async function fetchUploadConfig(env: Env, context: IndexContext | null = null): Promise<UploadConfig> {
-  try {
+  return cachedFetch('upload', async () => {
     const db = getDatabase(env);
     const settings = await getUploadConfig(db, env);
     // 去除 已禁用 的渠道
@@ -96,73 +128,68 @@ export async function fetchUploadConfig(env: Env, context: IndexContext | null =
     }
 
     return settings;
-  } catch (error) {
-    console.error('Failed to fetch upload config:', error);
-    // 返回默认配置
-    return {
-      telegram: { channels: [] },
-      cfr2: { channels: [] },
-      s3: { channels: [] },
-      discord: { channels: [] },
-      huggingface: { channels: [] },
-      webdav: { channels: [] },
-    } as UploadConfig;
-  }
+  });
 }
 
 export async function fetchSecurityConfig(env: Env): Promise<SecurityConfig> {
-  try {
-    const db = getDatabase(env);
-    const settings = await getSecurityConfig(db, env);
-    return settings;
-  } catch (error) {
-    console.error('Failed to fetch security config:', error);
-    // 返回默认配置
-    return {
-      auth: {
-        password: '',
-      },
-      upload: {
-        moderate: { enabled: false, channel: 'default', moderateContentApiKey: '', nsfwApiPath: '' },
-      },
-      access: {
-        sessionSecure: false,
-        sessionMaxAge: 14,
-        refererCheck: {
-          enabled: false,
-          allowedDomains: [],
-          allowEmptyReferer: true,
+  return cachedFetch('security', async () => {
+    try {
+      const db = getDatabase(env);
+      const settings = await getSecurityConfig(db, env);
+      return settings;
+    } catch (error) {
+      console.error('Failed to fetch security config:', error);
+      // 返回默认配置
+      return {
+        auth: {
+          password: '',
         },
-        whiteListMode: {
-          enabled: false,
+        upload: {
+          moderate: { enabled: false, channel: 'default', moderateContentApiKey: '', nsfwApiPath: '' },
         },
-      },
-    } as SecurityConfig;
-  }
+        access: {
+          sessionSecure: false,
+          sessionMaxAge: 14,
+          refererCheck: {
+            enabled: false,
+            allowedDomains: [],
+            allowEmptyReferer: true,
+          },
+          whiteListMode: {
+            enabled: false,
+          },
+        },
+      } as SecurityConfig;
+    }
+  });
 }
 
 export async function fetchPageConfig(env: Env): Promise<PageConfig> {
-  try {
-    const db = getDatabase(env);
-    const settings = await getPageConfig(db, env);
-    return settings;
-  } catch (error) {
-    console.error('Failed to fetch page config:', error);
-    // 返回默认配置
-    return { config: [] } as PageConfig;
-  }
+  return cachedFetch('page', async () => {
+    try {
+      const db = getDatabase(env);
+      const settings = await getPageConfig(db, env);
+      return settings;
+    } catch (error) {
+      console.error('Failed to fetch page config:', error);
+      // 返回默认配置
+      return { config: [] } as PageConfig;
+    }
+  });
 }
 
 export async function fetchOthersConfig(env: Env): Promise<OthersConfig> {
-  try {
-    const db = getDatabase(env);
-    const settings = await getOthersConfig(db, env);
-    return settings;
-  } catch (error) {
-    console.error('Failed to fetch others config:', error);
-    // 返回默认配置
-    return {
-      telemetry: { enabled: false },
-    } as OthersConfig;
-  }
+  return cachedFetch('others', async () => {
+    try {
+      const db = getDatabase(env);
+      const settings = await getOthersConfig(db, env);
+      return settings;
+    } catch (error) {
+      console.error('Failed to fetch others config:', error);
+      // 返回默认配置
+      return {
+        telemetry: { enabled: false },
+      } as OthersConfig;
+    }
+  });
 }

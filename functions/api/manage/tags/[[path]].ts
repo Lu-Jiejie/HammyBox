@@ -8,7 +8,6 @@ import type { Env, DatabaseAdapter, FileMetadata, PagesContext } from '../../../
 /**
  * Tag Management API for Single Files
  *
- * GET /api/manage/tags/{fileId} - Get tags for a file
  * POST /api/manage/tags/{fileId} - Update tags for a file
  *
  * POST body format:
@@ -38,17 +37,14 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   const db = getDatabase(env as Env);
 
   try {
-    if (request.method === 'GET') {
-      // Get tags for file
-      return await handleGetTags(db, fileId);
-    } else if (request.method === 'POST') {
+    if (request.method === 'POST') {
       // Update tags for file
       return await handleUpdateTags(context, db, fileId, url.hostname);
     } else {
       return new Response(
         JSON.stringify({
           error: 'Method not allowed',
-          allowedMethods: ['GET', 'POST'],
+          allowedMethods: ['POST'],
         }),
         {
           status: 405,
@@ -68,50 +64,6 @@ export async function onRequest(context: PagesContext): Promise<Response> {
         headers: { 'Content-Type': 'application/json' },
       }
     );
-  }
-}
-
-/**
- * Handle GET request - Get tags for a file
- */
-async function handleGetTags(db: DatabaseAdapter, fileId: string): Promise<Response> {
-  try {
-    const fileData = await db.getWithMetadata(fileId);
-
-    if (!fileData || !fileData.metadata) {
-      return new Response(
-        JSON.stringify({
-          error: 'File not found',
-          fileId: fileId,
-        }),
-        {
-          status: 404,
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-store',
-          },
-        }
-      );
-    }
-
-    const tags = (fileData.metadata as FileMetadata).Tags || [];
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        fileId: fileId,
-        tags: tags,
-      }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store',
-        },
-      }
-    );
-  } catch (error: any) {
-    throw new Error(`Failed to get tags: ${error.message}`);
   }
 }
 

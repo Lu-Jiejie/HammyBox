@@ -59,6 +59,25 @@ const KV_LIST_LIMIT = 1000; // 数据库列出批量大小
 const BATCH_SIZE = 10; // 批量处理大小
 
 /**
+ * 完整索引内存缓存（isolate 级）。
+ *
+ * Cloudflare Workers/Pages 中同一 isolate 的模块级变量跨请求存活。
+ * 完整索引可能包含数万文件，每次 readIndex 都从 KV 全量加载（元数据 + 全部分块）
+ * 成本很高。这里缓存"最近加载的完整索引 + 其元数据 lastUpdated"，
+ * getIndex 每次先读一次索引元数据（单次 KV 读），若 lastUpdated 未变化则直接复用
+ * 内存中的完整索引，避免全量分块读取。
+ *
+ * 正确性：
+ * - 所有写路径（addFileToIndex/removeFileFromIndex/moveFileInIndex/批量操作）都
+ *   经 recordOperation + mergeOperationsToIndex，最终 saveChunkedIndex 会更新
+ *   lastUpdated 并刷新缓存；
+ * - merge 基于缓存对象的 files 浅拷贝工作，不会污染缓存的原始引用；
+ * - getIndex 以元数据 lastUpdated 为失效条件，读取始终以 KV 为准，不会读到陈旧索引。
+ */
+let cachedIndex: IndexObject | null = null;
+let cachedIndexLastUpdated: number | null = null;
+
+/**
  * 索引上下文（包含 env 与其他信息）
  */
 interface IndexContext {
@@ -405,7 +424,13 @@ export async function mergeOperationsToIndex(
     operations.sort((a, b) => a.timestamp - b.timestamp);
 
     // 创建索引的副本进行操作
-    const workingIndex: IndexObject = currentIndex as IndexObject;
+    // 注意：currentIndex 可能来自内存缓存（getIndex），不能原地修改，
+    // 否则会污染缓存的原始引用。files 数组浅拷贝即可（apply 操作只替换/增删数组元素，
+    // 不修改元素内部对象）。
+    const workingIndex: IndexObject = {
+      ...currentIndex,
+      files: [...currentIndex.files],
+    } as IndexObject;
     let operationsProcessed = 0;
     let addedCount = 0;
     let removedCount = 0;
@@ -1460,9 +1485,27 @@ export async function deleteAllOperations(context: IndexContext): Promise<Record
 async function getIndex(context: IndexContext): Promise<IndexObject> {
   const { waitUntil } = context;
   try {
-    // 首先尝试加载分块索引
+    // 先读取索引元数据（单次 KV 读，比全量加载便宜得多）
+    // 若 lastUpdated 未变化，直接复用内存中的完整索引
+    const env = context.env;
+    const db = getDatabase(env);
+    const metadataStr = await db.get(INDEX_META_KEY);
+    if (metadataStr) {
+      try {
+        const meta = JSON.parse(metadataStr);
+        if (cachedIndex && cachedIndexLastUpdated === meta.lastUpdated) {
+          return cachedIndex;
+        }
+      } catch (e) {
+        // 元数据解析失败，忽略并走全量加载
+      }
+    }
+
+    // 缓存未命中，全量加载分块索引
     const index = await loadChunkedIndex(context);
     if (index.success) {
+      cachedIndex = index;
+      cachedIndexLastUpdated = index.lastUpdated;
       return index;
     } else {
       // 如果加载失败，触发重建索引
@@ -1712,6 +1755,10 @@ async function saveChunkedIndex(context: IndexContext, index: IndexObject): Prom
     });
 
     await Promise.all(savePromises);
+
+    // 写入成功，同步更新内存缓存（index 对象在此已被调用方更新 lastUpdated/totalCount）
+    cachedIndex = index;
+    cachedIndexLastUpdated = index.lastUpdated;
 
     console.log(
       `Saved chunked index: ${chunks.length} chunks, ${files.length} total files, ${totalSizeMB.toFixed(2)} MB`

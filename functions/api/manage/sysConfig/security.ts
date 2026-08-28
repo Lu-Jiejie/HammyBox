@@ -1,6 +1,7 @@
 import { getDatabase } from '../../../utils/databaseAdapter.js';
 import { hashPassword, isHashed } from '../../../utils/auth/passwordHash.js';
 import { destroyAllSessions } from '../../../utils/auth/sessionManager.js';
+import { invalidateConfigCache } from '../../../utils/sysConfig.js';
 import type { Env, ConfigStore, SecurityConfig } from '../../../types';
 
 interface RequestContext {
@@ -88,6 +89,8 @@ export async function onRequest(context: RequestContext): Promise<Response | und
 
     // 写入数据库
     await db.put('manage@sysConfig@security', JSON.stringify(settings));
+    // 配置变更，立即失效缓存（session 相关配置必须即时生效）
+    invalidateConfigCache();
 
     // 凭据变更后清除所有会话，强制重新登录
     if (credentialsChanged) {

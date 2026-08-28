@@ -150,8 +150,8 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   }
 }
 
-// 删除单个文件的核心函数
-async function deleteFile(
+// 删除单个文件的核心函数（导出供批量删除路由复用）
+export async function deleteFile(
   env: Env,
   fileId: string,
   cdnUrl: string,

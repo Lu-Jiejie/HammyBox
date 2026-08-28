@@ -1,4 +1,5 @@
 import { getDatabase } from '../../../utils/databaseAdapter.js';
+import { invalidateConfigCache } from '../../../utils/sysConfig.js';
 
 export async function onRequest(context: {
   request: Request;
@@ -31,6 +32,8 @@ export async function onRequest(context: {
     const settings = body;
     // 写入数据库
     await db.put('manage@sysConfig@page', JSON.stringify(settings));
+    // 配置变更，立即失效缓存
+    invalidateConfigCache();
 
     return new Response(JSON.stringify(settings), {
       headers: {

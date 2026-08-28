@@ -1,5 +1,6 @@
 import { getDatabase } from '../../../utils/databaseAdapter.js';
 import { normalizeWebDAVHeaders } from '../../../utils/storage/webdavAPI.js';
+import { invalidateConfigCache } from '../../../utils/sysConfig.js';
 import type { Env, ConfigStore, UploadConfig } from '../../../types';
 
 export async function onRequest(context: {
@@ -40,6 +41,8 @@ export async function onRequest(context: {
 
     // 写入数据库
     await db.put('manage@sysConfig@upload', JSON.stringify(settings));
+    // 配置变更，立即失效缓存
+    invalidateConfigCache();
 
     return new Response(JSON.stringify(settings), {
       headers: {

@@ -1,5 +1,5 @@
 // WebDAV 服务支持
-import { fetchOthersConfig } from '../../utils/sysConfig.js';
+import { fetchOthersConfig, invalidateConfigCache } from '../../utils/sysConfig.js';
 import { getDatabase } from '../../utils/databaseAdapter.js';
 import { createApiToken } from '../manage/apiTokens.js';
 import { normalizeFolderPath } from '../../utils/pathNormalizer.js';
@@ -61,6 +61,8 @@ async function getApiHeaders(env: Env): Promise<Record<string, string>> {
     settings.webDAV.internalToken = token;
     settings.webDAV.internalTokenId = tokenResult.id;
     await db.put('manage@sysConfig@others', JSON.stringify(settings));
+    // 配置变更，立即失效缓存
+    invalidateConfigCache();
   }
 
   return {
