@@ -42,7 +42,7 @@ export async function validateApiToken(
   }
 
   // 获取完整Token数据
-  const tokenData = await getTokenData(db, token);
+  const tokenData = await getTokenData(db as any, token);
 
   if (!tokenData) {
     return { valid: false, error: '无效的Token' };
@@ -54,7 +54,7 @@ export async function validateApiToken(
   }
 
   // 检查权限，如果不需要特定权限（requiredPermission为null），则只要token有效就通过
-  if (requiredPermission !== null && !tokenData.permissions.includes(requiredPermission)) {
+  if (requiredPermission !== null && !tokenData.permissions.includes(requiredPermission as any)) {
     return { valid: false, error: `缺少${requiredPermission}权限` };
   }
 
