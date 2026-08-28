@@ -1,12 +1,13 @@
 /**
  * BatchListAPI - 分批读取 KV 数据的 API 端点
- * 
+ *
  * 实现 cursor 分页机制，每批最多 1000 条记录
  * 支持 includeValue 参数用于获取分块文件的 value
  */
 
 import { getDatabase } from '../../../utils/databaseAdapter.js';
 import { stripSensitiveMetadata } from '../../../utils/metadata/metadataSecurity.js';
+import type { Env, PagesContext, FileMetadata } from '../../../types';
 
 // CORS 跨域响应头
 const corsHeaders = {
@@ -18,11 +19,8 @@ const corsHeaders = {
 
 /**
  * 创建 JSON 响应
- * @param {Object} data - 响应数据
- * @param {number} status - HTTP 状态码
- * @returns {Response}
  */
-function jsonResponse(data, status = 200) {
+function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
@@ -34,11 +32,8 @@ function jsonResponse(data, status = 200) {
 
 /**
  * 创建错误响应
- * @param {string} message - 错误消息
- * @param {number} status - HTTP 状态码
- * @returns {Response}
  */
-function errorResponse(message, status = 400) {
+function errorResponse(message: string, status = 400): Response {
   return jsonResponse({ success: false, error: message }, status);
 }
 
@@ -46,25 +41,25 @@ function errorResponse(message, status = 400) {
  * 检查文件是否为需要读取 value 的分块文件
  * 仅 Telegram 和 Discord 渠道的分块文件需要读取 value
  *
- * @param {Object} metadata - 文件元数据
- * @returns {boolean}
+ * @param metadata - 文件元数据
+ * @returns 是否需要读取 value
  */
-function isChunkedFileNeedingValue(metadata) {
-  if (!metadata || !metadata.IsChunked) {
+function isChunkedFileNeedingValue(metadata: unknown): boolean {
+  const meta = (metadata || {}) as FileMetadata;
+  if (!meta.IsChunked) {
     return false;
   }
 
-  const channel = metadata.Channel;
+  const channel = meta.Channel;
   return channel === 'Telegram' || channel === 'TelegramNew' || channel === 'Discord';
 }
 
 /**
  * 处理 GET 请求 - 分批读取 KV 数据
- * 
- * @param {Object} context - Cloudflare Workers 上下文
- * @returns {Promise<Response>}
+ *
+ * @param context - Cloudflare Workers 上下文
  */
-export async function onRequestGet(context) {
+export async function onRequestGet(context: PagesContext): Promise<Response> {
   const { request, env } = context;
   const url = new URL(request.url);
 
@@ -83,10 +78,10 @@ export async function onRequestGet(context) {
     }
 
     // 获取数据库实例
-    const db = getDatabase(env);
+    const db = getDatabase(env as Env);
 
     // 构建 list 请求选项
-    const listOptions = {
+    const listOptions: Record<string, unknown> = {
       limit,
     };
 
@@ -104,32 +99,33 @@ export async function onRequestGet(context) {
     }
 
     // 处理记录
-    const records = [];
-    
+    const records: Array<Record<string, unknown>> = [];
+
     for (const item of listResult.keys) {
       // 跳过管理相关的键（以 manage@ 开头）
       if (item.name.startsWith('manage@')) {
         continue;
       }
-      
+
       // 跳过分块数据键（以 chunk_ 开头）
       if (item.name.startsWith('chunk_')) {
         continue;
       }
 
       // 跳过没有元数据或有效时间戳的记录
-      if (!item.metadata || !item.metadata.TimeStamp) {
+      const itemMetadata = item.metadata as FileMetadata | undefined;
+      if (!itemMetadata || !itemMetadata.TimeStamp) {
         continue;
       }
 
       // 构建记录对象
-      const record = {
+      const record: Record<string, unknown> = {
         id: item.name,
-        metadata: stripSensitiveMetadata(item.metadata),
+        metadata: stripSensitiveMetadata(itemMetadata),
       };
 
       // 如果需要包含 value 且是分块文件，读取 value
-      if (includeValue && isChunkedFileNeedingValue(item.metadata)) {
+      if (includeValue && isChunkedFileNeedingValue(itemMetadata)) {
         try {
           const value = await db.get(item.name);
           if (value) {
@@ -153,8 +149,7 @@ export async function onRequestGet(context) {
     };
 
     return jsonResponse(response);
-
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in BatchListAPI:', error);
     return errorResponse(`Database read error: ${error.message}`, 500);
   }
@@ -162,10 +157,10 @@ export async function onRequestGet(context) {
 
 /**
  * 处理 OPTIONS 请求 - CORS 预检
- * 
+ *
  * @returns {Response}
  */
-export async function onRequestOptions() {
+export async function onRequestOptions(): Promise<Response> {
   return new Response(null, {
     status: 204,
     headers: corsHeaders,
@@ -174,20 +169,19 @@ export async function onRequestOptions() {
 
 /**
  * 默认请求处理器
- * 
- * @param {Object} context - Cloudflare Workers 上下文
- * @returns {Promise<Response>}
+ *
+ * @param context - Cloudflare Workers 上下文
  */
-export async function onRequest(context) {
+export async function onRequest(context: PagesContext): Promise<Response> {
   const { request } = context;
-  
+
   if (request.method === 'GET') {
     return onRequestGet(context);
   }
-  
+
   if (request.method === 'OPTIONS') {
     return onRequestOptions();
   }
-  
+
   return errorResponse('Method not allowed', 405);
 }

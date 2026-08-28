@@ -1,11 +1,12 @@
 /**
  * BatchIndexChunkAPI - 接收并存储索引分块的 API 端点
- * 
+ *
  * 实现数据结构验证和 checksum 校验
  * 存储分块数据到 KV，使用 session ID 和 chunk ID 作为键
  */
 
 import { getDatabase } from '../../../../utils/databaseAdapter.js';
+import type { Env, PagesContext } from '../../../../types';
 
 // CORS 跨域响应头
 const corsHeaders = {
@@ -17,11 +18,8 @@ const corsHeaders = {
 
 /**
  * 创建 JSON 响应
- * @param {Object} data - 响应数据
- * @param {number} status - HTTP 状态码
- * @returns {Response}
  */
-function jsonResponse(data, status = 200) {
+function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
@@ -33,13 +31,9 @@ function jsonResponse(data, status = 200) {
 
 /**
  * 创建错误响应
- * @param {string} message - 错误消息
- * @param {number} status - HTTP 状态码
- * @param {string} details - 详细错误信息（可选）
- * @returns {Response}
  */
-function errorResponse(message, status = 400, details = null) {
-  const responseData = { success: false, error: message };
+function errorResponse(message: string, status = 400, details: unknown = null): Response {
+  const responseData: Record<string, unknown> = { success: false, error: message };
   if (details) {
     responseData.details = details;
   }
@@ -48,10 +42,9 @@ function errorResponse(message, status = 400, details = null) {
 
 /**
  * 计算数据的 SHA-256 校验和
- * @param {Array} data - 要计算校验和的数据
- * @returns {Promise<string>} 十六进制格式的校验和
+ * @returns 十六进制格式的校验和
  */
-async function calculateChecksum(data) {
+async function calculateChecksum(data: unknown): Promise<string> {
   const text = JSON.stringify(data);
   const encoder = new TextEncoder();
   const dataBuffer = encoder.encode(text);
@@ -64,7 +57,7 @@ async function calculateChecksum(data) {
  * 计算 FNV-1a fallback checksum（与前端非安全上下文 fallback 一致）
  * 当客户端无法使用 crypto.subtle（如通过 0.0.0.0 访问）时使用
  */
-function calculateFallbackChecksum(data) {
+function calculateFallbackChecksum(data: unknown): string {
   const text = JSON.stringify(data);
   const encoder = new TextEncoder();
   const dataBuffer = encoder.encode(text);
@@ -80,10 +73,8 @@ function calculateFallbackChecksum(data) {
 /**
  * 验证 sessionId 格式
  * 格式: rebuild_{timestamp}_{randomString}
- * @param {string} sessionId - 会话 ID
- * @returns {boolean}
  */
-function isValidSessionId(sessionId) {
+function isValidSessionId(sessionId: unknown): boolean {
   if (typeof sessionId !== 'string' || sessionId.length === 0) {
     return false;
   }
@@ -99,10 +90,8 @@ function isValidSessionId(sessionId) {
 /**
  * 验证 chunkId 格式
  * 应该是数字字符串 (0, 1, 2, ...)
- * @param {string} chunkId - 分块 ID
- * @returns {boolean}
  */
-function isValidChunkId(chunkId) {
+function isValidChunkId(chunkId: unknown): boolean {
   if (typeof chunkId !== 'string' || chunkId.length === 0) {
     return false;
   }
@@ -113,10 +102,8 @@ function isValidChunkId(chunkId) {
 
 /**
  * 清理字符串字段，防止注入攻击
- * @param {string} str - 要清理的字符串
- * @returns {string} 清理后的字符串
  */
-function sanitizeString(str) {
+function sanitizeString(str: unknown): unknown {
   if (typeof str !== 'string') {
     return str;
   }
@@ -127,66 +114,64 @@ function sanitizeString(str) {
 
 /**
  * 递归清理对象中的所有字符串字段
- * @param {any} obj - 要清理的对象
- * @returns {any} 清理后的对象
  */
-function sanitizeObject(obj) {
+function sanitizeObject(obj: unknown): unknown {
   if (obj === null || obj === undefined) {
     return obj;
   }
-  
+
   if (typeof obj === 'string') {
     return sanitizeString(obj);
   }
-  
+
   if (Array.isArray(obj)) {
     return obj.map(item => sanitizeObject(item));
   }
-  
+
   if (typeof obj === 'object') {
-    const sanitized = {};
-    for (const key of Object.keys(obj)) {
-      sanitized[sanitizeString(key)] = sanitizeObject(obj[key]);
+    const sanitized: Record<string, unknown> = {};
+    for (const key of Object.keys(obj as Record<string, unknown>)) {
+      sanitized[sanitizeString(key) as string] = sanitizeObject((obj as Record<string, unknown>)[key]);
     }
     return sanitized;
   }
-  
+
   return obj;
 }
 
 /**
  * 验证文件元数据结构
- * @param {Object} metadata - 文件元数据
- * @returns {{valid: boolean, error?: string}}
  */
-function validateMetadata(metadata) {
+function validateMetadata(metadata: unknown): { valid: boolean; error?: string } {
   if (!metadata || typeof metadata !== 'object') {
     return { valid: false, error: 'metadata must be an object' };
   }
 
+  const meta = metadata as Record<string, unknown>;
+
   // FileName 字段为可选
-  if (metadata.FileName !== undefined && typeof metadata.FileName !== 'string') {
+  if (meta.FileName !== undefined && typeof meta.FileName !== 'string') {
     return { valid: false, error: 'metadata.FileName must be a string if provided' };
   }
 
   // 可选字段类型检查（允许 null）
-  if (metadata.FileType !== undefined && metadata.FileType !== null && typeof metadata.FileType !== 'string') {
+  if (meta.FileType !== undefined && meta.FileType !== null && typeof meta.FileType !== 'string') {
     return { valid: false, error: 'metadata.FileType must be a string' };
   }
 
-  if (metadata.FileSize !== undefined && metadata.FileSize !== null && typeof metadata.FileSize !== 'string') {
+  if (meta.FileSize !== undefined && meta.FileSize !== null && typeof meta.FileSize !== 'string') {
     return { valid: false, error: 'metadata.FileSize must be a string' };
   }
 
-  if (metadata.TimeStamp !== undefined && typeof metadata.TimeStamp !== 'number') {
+  if (meta.TimeStamp !== undefined && typeof meta.TimeStamp !== 'number') {
     return { valid: false, error: 'metadata.TimeStamp must be a number' };
   }
 
-  if (metadata.Channel !== undefined && metadata.Channel !== null && typeof metadata.Channel !== 'string') {
+  if (meta.Channel !== undefined && meta.Channel !== null && typeof meta.Channel !== 'string') {
     return { valid: false, error: 'metadata.Channel must be a string' };
   }
 
-  if (metadata.Tags !== undefined && !Array.isArray(metadata.Tags)) {
+  if (meta.Tags !== undefined && !Array.isArray(meta.Tags)) {
     return { valid: false, error: 'metadata.Tags must be an array' };
   }
 
@@ -195,98 +180,96 @@ function validateMetadata(metadata) {
 
 /**
  * 验证单个数据记录
- * @param {Object} record - 数据记录
- * @param {number} index - 记录索引（用于错误消息）
- * @returns {{valid: boolean, error?: string}}
  */
-function validateRecord(record, index) {
+function validateRecord(record: unknown, index: number): { valid: boolean; error?: string } {
   if (!record || typeof record !== 'object') {
     return { valid: false, error: `record[${index}] must be an object` };
   }
-  
-  if (typeof record.id !== 'string' || record.id.length === 0) {
+
+  const rec = record as Record<string, unknown>;
+
+  if (typeof rec.id !== 'string' || rec.id.length === 0) {
     return { valid: false, error: `record[${index}].id must be a non-empty string` };
   }
-  
+
   // 验证 id 不包含危险字符
-  if (record.id.includes('\x00') || record.id.includes('\n') || record.id.includes('\r')) {
+  if (rec.id.includes('\x00') || rec.id.includes('\n') || rec.id.includes('\r')) {
     return { valid: false, error: `record[${index}].id contains invalid characters` };
   }
-  
-  const metadataValidation = validateMetadata(record.metadata);
+
+  const metadataValidation = validateMetadata(rec.metadata);
   if (!metadataValidation.valid) {
     return { valid: false, error: `record[${index}].${metadataValidation.error}` };
   }
-  
+
   return { valid: true };
 }
 
 /**
  * 验证请求体数据结构
- * @param {Object} body - 请求体
- * @returns {{valid: boolean, error?: string}}
  */
-function validateRequestBody(body) {
+function validateRequestBody(body: unknown): { valid: boolean; error?: string } {
+  const b = body as Record<string, unknown> | null;
+
   // 检查必需字段
-  if (!body || typeof body !== 'object') {
+  if (!b || typeof b !== 'object') {
     return { valid: false, error: 'Request body must be a JSON object' };
   }
-  
+
   // 验证 chunkId
-  if (!isValidChunkId(body.chunkId)) {
+  if (!isValidChunkId(b.chunkId)) {
     return { valid: false, error: 'chunkId must be a valid non-negative integer string' };
   }
-  
+
   // 验证 sessionId
-  if (!isValidSessionId(body.sessionId)) {
+  if (!isValidSessionId(b.sessionId)) {
     return { valid: false, error: 'sessionId must be a valid alphanumeric string' };
   }
-  
+
   // 验证 data 数组
-  if (!Array.isArray(body.data)) {
+  if (!Array.isArray(b.data)) {
     return { valid: false, error: 'data must be an array' };
   }
-  
+
   // 限制数据量防止 DoS
-  if (body.data.length > 10000) {
+  if (b.data.length > 10000) {
     return { valid: false, error: 'data array exceeds maximum size of 10000 records' };
   }
-  
+
   // 验证每条记录
-  for (let i = 0; i < body.data.length; i++) {
-    const recordValidation = validateRecord(body.data[i], i);
+  for (let i = 0; i < b.data.length; i++) {
+    const recordValidation = validateRecord(b.data[i], i);
     if (!recordValidation.valid) {
       return recordValidation;
     }
   }
-  
+
   // 验证 checksum
-  if (typeof body.checksum !== 'string' || body.checksum.length === 0) {
+  if (typeof b.checksum !== 'string' || b.checksum.length === 0) {
     return { valid: false, error: 'checksum must be a non-empty string' };
   }
-  
+
   // 验证 checksum 格式（SHA-256 64字符 或 FNV fallback 16字符）
-  if (!/^[a-f0-9]{16}$/i.test(body.checksum) && !/^[a-f0-9]{64}$/i.test(body.checksum)) {
+  if (!/^[a-f0-9]{16}$/i.test(b.checksum) && !/^[a-f0-9]{64}$/i.test(b.checksum)) {
     return { valid: false, error: 'checksum must be a valid hex string (16 or 64 characters)' };
   }
-  
+
   return { valid: true };
 }
 
 /**
  * 处理 POST 请求 - 接收并存储索引分块
- * 
- * @param {Object} context - Cloudflare Workers 上下文
- * @returns {Promise<Response>}
+ *
+ * @param context - Cloudflare Workers 上下文
  */
-export async function onRequestPost(context) {
+export async function onRequestPost(context: PagesContext): Promise<Response> {
   const { request, env } = context;
 
   try {
     // 认证已由 _middleware.js 处理
 
     // 解析请求体
-    let body;
+    let body: unknown;
     try {
       body = await request.json();
     } catch (parseError) {
@@ -299,35 +282,36 @@ export async function onRequestPost(context) {
       return errorResponse('Invalid request body', 400, validation.error);
     }
 
-    const { chunkId, sessionId, data, checksum } = body;
+    const b = body as Record<string, unknown>;
+    const { chunkId, sessionId, data, checksum } = b;
 
     // 清理数据中的字符串字段
     const sanitizedData = sanitizeObject(data);
 
     // 验证 checksum，根据长度选择对应算法
     // 64字符 = SHA-256（安全上下文），16字符 = FNV fallback（非安全上下文，如 0.0.0.0）
-    const isFallback = checksum.length === 16;
+    const isFallback = String(checksum).length === 16;
     const calculatedChecksum = isFallback
       ? calculateFallbackChecksum(sanitizedData)
       : await calculateChecksum(sanitizedData);
-    if (calculatedChecksum.toLowerCase() !== checksum.toLowerCase()) {
+    if (calculatedChecksum.toLowerCase() !== String(checksum).toLowerCase()) {
       return errorResponse('Checksum mismatch', 400, 'The provided checksum does not match the data');
     }
 
     // 6. 获取数据库实例
-    const db = getDatabase(env);
+    const db = getDatabase(env as Env);
 
     // 存储分块数据到 KV
     // 使用格式: chunk_{sessionId}_{chunkId}
-    const chunkKey = `chunk_${sessionId}_${chunkId}`;
-    
+    const chunkKey = `chunk_${String(sessionId)}_${String(chunkId)}`;
+
     const chunkData = {
       chunkId,
       sessionId,
       data: sanitizedData,
       checksum: calculatedChecksum,
       storedAt: Date.now(),
-      recordCount: sanitizedData.length,
+      recordCount: Array.isArray(sanitizedData) ? sanitizedData.length : 0,
     };
 
     await db.put(chunkKey, JSON.stringify(chunkData));
@@ -336,10 +320,9 @@ export async function onRequestPost(context) {
     return jsonResponse({
       success: true,
       chunkId,
-      storedCount: sanitizedData.length,
+      storedCount: Array.isArray(sanitizedData) ? sanitizedData.length : 0,
     });
-
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in BatchIndexChunkAPI:', error);
     return errorResponse(`Database write error: ${error.message}`, 500);
   }
@@ -347,10 +330,10 @@ export async function onRequestPost(context) {
 
 /**
  * 处理 OPTIONS 请求 - CORS 预检
- * 
+ *
  * @returns {Response}
  */
-export async function onRequestOptions() {
+export async function onRequestOptions(): Promise<Response> {
   return new Response(null, {
     status: 204,
     headers: corsHeaders,
@@ -359,20 +342,19 @@ export async function onRequestOptions() {
 
 /**
  * 默认请求处理器
- * 
- * @param {Object} context - Cloudflare Workers 上下文
- * @returns {Promise<Response>}
+ *
+ * @param context - Cloudflare Workers 上下文
  */
-export async function onRequest(context) {
+export async function onRequest(context: PagesContext): Promise<Response> {
   const { request } = context;
-  
+
   if (request.method === 'POST') {
     return onRequestPost(context);
   }
-  
+
   if (request.method === 'OPTIONS') {
     return onRequestOptions();
   }
-  
+
   return errorResponse('Method not allowed', 405);
 }

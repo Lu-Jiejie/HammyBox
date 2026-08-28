@@ -1,10 +1,11 @@
 /**
  * BatchIndexConfigAPI - 获取索引重建配置
- * 
+ *
  * 返回根据数据库类型确定的分块大小等配置信息
  */
 
 import { checkDatabaseConfig } from '../../../../utils/databaseAdapter.js';
+import type { PagesContext } from '../../../../types';
 
 // CORS 跨域响应头
 const corsHeaders = {
@@ -21,7 +22,7 @@ const INDEX_CHUNK_SIZE_KV = 5000;
 /**
  * 创建 JSON 响应
  */
-function jsonResponse(data, status = 200) {
+function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
@@ -34,7 +35,7 @@ function jsonResponse(data, status = 200) {
 /**
  * 处理 GET 请求 - 获取索引配置
  */
-export async function onRequestGet(context) {
+export async function onRequestGet(context: PagesContext): Promise<Response> {
   const { env } = context;
 
   try {
@@ -46,7 +47,7 @@ export async function onRequestGet(context) {
       chunkSize,
       databaseType: config.usingD1 ? 'd1' : 'kv',
     });
-  } catch (error) {
+  } catch (error: any) {
     return jsonResponse({ success: false, error: error.message }, 500);
   }
 }
@@ -54,11 +55,11 @@ export async function onRequestGet(context) {
 /**
  * 处理 OPTIONS 请求 - CORS 预检
  */
-export async function onRequestOptions() {
+export async function onRequestOptions(): Promise<Response> {
   return new Response(null, { status: 204, headers: corsHeaders });
 }
 
-export async function onRequest(context) {
+export async function onRequest(context: PagesContext): Promise<Response> {
   const { request } = context;
   if (request.method === 'GET') return onRequestGet(context);
   if (request.method === 'OPTIONS') return onRequestOptions();

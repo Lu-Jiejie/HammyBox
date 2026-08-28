@@ -1,12 +1,13 @@
 /**
  * BatchIndexFinalizeAPI - 完成索引重建，组装所有分块
- * 
+ *
  * 实现分块组装逻辑，将所有分块合并为完整索引
  * 更新索引元数据
  * 清理临时分块数据
  */
 
 import { getDatabase, checkDatabaseConfig } from '../../../../utils/databaseAdapter.js';
+import type { Env, PagesContext, DatabaseAdapter } from '../../../../types';
 
 // CORS 跨域响应头
 const corsHeaders = {
@@ -25,21 +26,16 @@ const INDEX_CHUNK_SIZE_KV = 5000; // KV 存储分块大小
 
 /**
  * 根据数据库类型获取索引分块大小
- * @param {Object} env - 环境变量
- * @returns {number} 分块大小
  */
-function getIndexChunkSize(env) {
+function getIndexChunkSize(env: Env): number {
   const config = checkDatabaseConfig(env);
   return config.usingD1 ? INDEX_CHUNK_SIZE_D1 : INDEX_CHUNK_SIZE_KV;
 }
 
 /**
  * 创建 JSON 响应
- * @param {Object} data - 响应数据
- * @param {number} status - HTTP 状态码
- * @returns {Response}
  */
-function jsonResponse(data, status = 200) {
+function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
@@ -51,13 +47,9 @@ function jsonResponse(data, status = 200) {
 
 /**
  * 创建错误响应
- * @param {string} message - 错误消息
- * @param {number} status - HTTP 状态码
- * @param {string} details - 详细错误信息（可选）
- * @returns {Response}
  */
-function errorResponse(message, status = 400, details = null) {
-  const responseData = { success: false, error: message };
+function errorResponse(message: string, status = 400, details: unknown = null): Response {
+  const responseData: Record<string, unknown> = { success: false, error: message };
   if (details) {
     responseData.details = details;
   }
@@ -67,10 +59,8 @@ function errorResponse(message, status = 400, details = null) {
 /**
  * 验证 sessionId 格式
  * 格式: rebuild_{timestamp}_{randomString}
- * @param {string} sessionId - 会话 ID
- * @returns {boolean}
  */
-function isValidSessionId(sessionId) {
+function isValidSessionId(sessionId: unknown): boolean {
   if (typeof sessionId !== 'string' || sessionId.length === 0) {
     return false;
   }
@@ -85,33 +75,33 @@ function isValidSessionId(sessionId) {
 
 /**
  * 验证请求体数据结构
- * @param {Object} body - 请求体
- * @returns {{valid: boolean, error?: string}}
  */
-function validateRequestBody(body) {
+function validateRequestBody(body: unknown): { valid: boolean; error?: string } {
+  const b = body as Record<string, unknown> | null;
+
   // 检查必需字段
-  if (!body || typeof body !== 'object') {
+  if (!b || typeof b !== 'object') {
     return { valid: false, error: 'Request body must be a JSON object' };
   }
 
   // 验证 sessionId
-  if (!isValidSessionId(body.sessionId)) {
+  if (!isValidSessionId(b.sessionId)) {
     return { valid: false, error: 'sessionId must be a valid alphanumeric string' };
   }
 
   // 验证 totalChunks
-  if (typeof body.totalChunks !== 'number' || !Number.isInteger(body.totalChunks) || body.totalChunks < 0) {
+  if (typeof b.totalChunks !== 'number' || !Number.isInteger(b.totalChunks) || b.totalChunks < 0) {
     return { valid: false, error: 'totalChunks must be a non-negative integer' };
   }
 
   // 验证 totalFiles
-  if (typeof body.totalFiles !== 'number' || !Number.isInteger(body.totalFiles) || body.totalFiles < 0) {
+  if (typeof b.totalFiles !== 'number' || !Number.isInteger(b.totalFiles) || b.totalFiles < 0) {
     return { valid: false, error: 'totalFiles must be a non-negative integer' };
   }
 
   // checksum 是可选的，但如果提供了必须是有效的字符串
-  if (body.checksum !== undefined && body.checksum !== null) {
-    if (typeof body.checksum !== 'string') {
+  if (b.checksum !== undefined && b.checksum !== null) {
+    if (typeof b.checksum !== 'string') {
       return { valid: false, error: 'checksum must be a string if provided' };
     }
   }
@@ -119,31 +109,37 @@ function validateRequestBody(body) {
   return { valid: true };
 }
 
+interface ChunkData {
+  chunkId: number;
+  data: unknown[];
+  recordCount: number;
+}
+
 /**
  * 读取所有分块数据
- * @param {Object} db - 数据库实例
- * @param {string} sessionId - 会话 ID
- * @param {number} totalChunks - 总分块数
- * @returns {Promise<{success: boolean, chunks?: Array, error?: string, missingChunks?: Array}>}
  */
-async function readAllChunks(db, sessionId, totalChunks) {
-  const chunks = [];
-  const missingChunks = [];
+async function readAllChunks(
+  db: DatabaseAdapter,
+  sessionId: string,
+  totalChunks: number,
+): Promise<{ success: boolean; chunks?: ChunkData[]; error?: string; missingChunks?: number[] }> {
+  const chunks: ChunkData[] = [];
+  const missingChunks: number[] = [];
 
   // 读取所有分块 (0 到 totalChunks-1)
   for (let chunkId = 0; chunkId < totalChunks; chunkId++) {
     const chunkKey = `chunk_${sessionId}_${chunkId}`;
-    
+
     try {
       const chunkDataStr = await db.get(chunkKey);
-      
+
       if (!chunkDataStr) {
         missingChunks.push(chunkId);
         continue;
       }
 
-      const chunkData = JSON.parse(chunkDataStr);
-      
+      const chunkData: any = JSON.parse(chunkDataStr);
+
       // 验证分块数据结构
       if (!chunkData || !Array.isArray(chunkData.data)) {
         missingChunks.push(chunkId);
@@ -174,15 +170,13 @@ async function readAllChunks(db, sessionId, totalChunks) {
 
 /**
  * 组装分块为完整索引
- * @param {Array} chunks - 分块数组
- * @returns {Array} 完整的文件记录数组
  */
-function assembleChunks(chunks) {
+function assembleChunks(chunks: ChunkData[]): unknown[] {
   // 按 chunkId 排序确保顺序正确
   chunks.sort((a, b) => a.chunkId - b.chunkId);
 
   // 合并所有分块的数据
-  const allFiles = [];
+  const allFiles: unknown[] = [];
   for (const chunk of chunks) {
     allFiles.push(...chunk.data);
   }
@@ -192,16 +186,16 @@ function assembleChunks(chunks) {
 
 /**
  * 保存分块索引到数据库
- * @param {Object} db - 数据库实例
- * @param {Array} files - 文件记录数组
- * @param {Object} env - 环境变量
- * @returns {Promise<{success: boolean, metadata?: Object, error?: string}>}
  */
-async function saveIndex(db, files, env) {
+async function saveIndex(
+  db: DatabaseAdapter,
+  files: unknown[],
+  env: Env,
+): Promise<{ success: boolean; metadata?: Record<string, unknown>; error?: string }> {
   try {
     const chunkSize = getIndexChunkSize(env);
-    const chunks = [];
-    
+    const chunks: unknown[][] = [];
+
     // 将文件数组分块
     for (let i = 0; i < files.length; i += chunkSize) {
       const chunk = files.slice(i, i + chunkSize);
@@ -209,28 +203,29 @@ async function saveIndex(db, files, env) {
     }
 
     // 计算各渠道容量统计
-    const channelStats = {};
+    const channelStats: Record<string, { usedMB: number; fileCount: number }> = {};
     let totalSizeMB = 0;
 
     for (const file of files) {
-      const channelName = file.metadata?.ChannelName;
-      const fileSize = parseFloat(file.metadata?.FileSize) || 0;
+      const fileRecord = file as { metadata?: Record<string, unknown> };
+      const channelName = fileRecord.metadata?.ChannelName;
+      const fileSize = parseFloat(fileRecord.metadata?.FileSize as string) || 0;
 
       totalSizeMB += fileSize;
 
       if (channelName) {
-        if (!channelStats[channelName]) {
-          channelStats[channelName] = { usedMB: 0, fileCount: 0 };
+        if (!channelStats[channelName as string]) {
+          channelStats[channelName as string] = { usedMB: 0, fileCount: 0 };
         }
-        channelStats[channelName].usedMB += fileSize;
-        channelStats[channelName].fileCount += 1;
+        channelStats[channelName as string].usedMB += fileSize;
+        channelStats[channelName as string].fileCount += 1;
       }
     }
 
     const lastUpdated = Date.now();
 
     // 保存索引元数据
-    const metadata = {
+    const metadata: Record<string, unknown> = {
       lastUpdated,
       totalCount: files.length,
       totalSizeMB: Math.round(totalSizeMB * 100) / 100,
@@ -253,7 +248,7 @@ async function saveIndex(db, files, env) {
     console.log(`Saved index: ${chunks.length} chunks, ${files.length} total files, ${totalSizeMB.toFixed(2)} MB`);
 
     return { success: true, metadata };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error saving index:', error);
     return { success: false, error: error.message };
   }
@@ -261,12 +256,8 @@ async function saveIndex(db, files, env) {
 
 /**
  * 清理临时分块数据
- * @param {Object} db - 数据库实例
- * @param {string} sessionId - 会话 ID
- * @param {number} totalChunks - 总分块数
- * @returns {Promise<void>}
  */
-async function cleanupChunks(db, sessionId, totalChunks) {
+async function cleanupChunks(db: DatabaseAdapter, sessionId: string, totalChunks: number): Promise<void> {
   const deletePromises = [];
 
   for (let chunkId = 0; chunkId < totalChunks; chunkId++) {
@@ -284,11 +275,8 @@ async function cleanupChunks(db, sessionId, totalChunks) {
 
 /**
  * 清理旧的索引分块（如果新索引分块数量少于旧的）
- * @param {Object} db - 数据库实例
- * @param {number} newChunkCount - 新索引的分块数量
- * @returns {Promise<void>}
  */
-async function cleanupOldIndexChunks(db, newChunkCount) {
+async function cleanupOldIndexChunks(db: DatabaseAdapter, newChunkCount: number): Promise<void> {
   try {
     // 读取旧的元数据获取旧的分块数量
     const oldMetaStr = await db.get(INDEX_META_KEY);
@@ -296,7 +284,7 @@ async function cleanupOldIndexChunks(db, newChunkCount) {
       return;
     }
 
-    const oldMeta = JSON.parse(oldMetaStr);
+    const oldMeta: any = JSON.parse(oldMetaStr);
     const oldChunkCount = oldMeta.chunkCount || 0;
 
     // 如果新的分块数量少于旧的，删除多余的分块
@@ -320,18 +308,17 @@ async function cleanupOldIndexChunks(db, newChunkCount) {
 
 /**
  * 处理 POST 请求 - 完成索引重建
- * 
- * @param {Object} context - Cloudflare Workers 上下文
- * @returns {Promise<Response>}
+ *
+ * @param context - Cloudflare Workers 上下文
  */
-export async function onRequestPost(context) {
+export async function onRequestPost(context: PagesContext): Promise<Response> {
   const { request, env } = context;
 
   try {
     // 认证已由 _middleware.js 处理
 
     // 解析请求体
-    let body;
+    let body: unknown;
     try {
       body = await request.json();
     } catch (parseError) {
@@ -344,15 +331,16 @@ export async function onRequestPost(context) {
       return errorResponse('Invalid request body', 400, validation.error);
     }
 
-    const { sessionId, totalChunks, totalFiles } = body;
+    const b = body as Record<string, unknown>;
+    const { sessionId, totalChunks, totalFiles } = b;
 
     // 4. 获取数据库实例
-    const db = getDatabase(env);
+    const db = getDatabase(env as Env);
 
     // 5. 处理空索引的情况
     if (totalChunks === 0 || totalFiles === 0) {
       // 保存空索引
-      const saveResult = await saveIndex(db, [], env);
+      const saveResult = await saveIndex(db, [], env as Env);
       if (!saveResult.success) {
         return errorResponse('Failed to save empty index', 500, saveResult.error);
       }
@@ -363,32 +351,32 @@ export async function onRequestPost(context) {
       return jsonResponse({
         success: true,
         indexedCount: 0,
-        lastUpdated: saveResult.metadata.lastUpdated,
+        lastUpdated: saveResult.metadata!.lastUpdated,
       });
     }
 
     // 读取所有分块
-    const chunksResult = await readAllChunks(db, sessionId, totalChunks);
+    const chunksResult = await readAllChunks(db, String(sessionId), Number(totalChunks));
     if (!chunksResult.success) {
       return errorResponse('Failed to read chunks', 400, chunksResult.error);
     }
 
     // 7. 组装分块为完整索引
-    const allFiles = assembleChunks(chunksResult.chunks);
+    const allFiles = assembleChunks(chunksResult.chunks!);
 
     // 8. 验证文件数量
-    if (allFiles.length !== totalFiles) {
+    if (allFiles.length !== Number(totalFiles)) {
       console.warn(`File count mismatch: expected ${totalFiles}, got ${allFiles.length}`);
       // 不作为错误处理，继续保存实际获取的文件数量
     }
 
     // 9. 清理旧的索引分块（在保存新索引之前）
-    const chunkSize = getIndexChunkSize(env);
+    const chunkSize = getIndexChunkSize(env as Env);
     const newChunkCount = Math.ceil(allFiles.length / chunkSize);
     await cleanupOldIndexChunks(db, newChunkCount);
 
     // 10. 保存新索引
-    const saveResult = await saveIndex(db, allFiles, env);
+    const saveResult = await saveIndex(db, allFiles, env as Env);
     if (!saveResult.success) {
       return errorResponse('Failed to save index', 500, saveResult.error);
     }
@@ -396,19 +384,18 @@ export async function onRequestPost(context) {
     // 11. 清理临时分块数据
     // 使用 waitUntil 异步清理，不阻塞响应
     if (context.waitUntil) {
-      context.waitUntil(cleanupChunks(db, sessionId, totalChunks));
+      context.waitUntil(cleanupChunks(db, String(sessionId), Number(totalChunks)));
     } else {
-      await cleanupChunks(db, sessionId, totalChunks);
+      await cleanupChunks(db, String(sessionId), Number(totalChunks));
     }
 
     // 12. 返回成功响应
     return jsonResponse({
       success: true,
       indexedCount: allFiles.length,
-      lastUpdated: saveResult.metadata.lastUpdated,
+      lastUpdated: saveResult.metadata!.lastUpdated,
     });
-
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in BatchIndexFinalizeAPI:', error);
     return errorResponse(`Server error: ${error.message}`, 500);
   }
@@ -416,10 +403,10 @@ export async function onRequestPost(context) {
 
 /**
  * 处理 OPTIONS 请求 - CORS 预检
- * 
+ *
  * @returns {Response}
  */
-export async function onRequestOptions() {
+export async function onRequestOptions(): Promise<Response> {
   return new Response(null, {
     status: 204,
     headers: corsHeaders,
@@ -428,11 +415,10 @@ export async function onRequestOptions() {
 
 /**
  * 默认请求处理器
- * 
- * @param {Object} context - Cloudflare Workers 上下文
- * @returns {Promise<Response>}
+ *
+ * @param context - Cloudflare Workers 上下文
  */
-export async function onRequest(context) {
+export async function onRequest(context: PagesContext): Promise<Response> {
   const { request } = context;
 
   if (request.method === 'POST') {
