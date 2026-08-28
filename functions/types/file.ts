@@ -43,6 +43,8 @@ export interface FileMetadata {
   ListType?: string;
   /** 标签 */
   Label?: string;
+  /** 标签数组（如 ['blocked', 'whitelist']，用于访问控制） */
+  Tags?: string[];
   /** Telegram 文件 ID 等渠道特定字段 */
   TelegramFileId?: string;
   /** 额外渠道特定字段 */
