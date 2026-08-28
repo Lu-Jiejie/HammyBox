@@ -33,14 +33,14 @@ export interface KVListResult {
  */
 export interface DatabaseAdapter {
   // ===== 核心 KV 风格接口 =====
-  put(key: string, value: string, options?: unknown): Promise<unknown>;
+  put(key: string, value: string | ArrayBuffer, options?: unknown): Promise<unknown>;
   get(key: string, options?: unknown): Promise<string | null>;
-  getWithMetadata(key: string, options?: unknown): Promise<{ value: string | null; metadata?: FileMetadata | unknown } | null>;
+  getWithMetadata(key: string, options?: unknown): Promise<{ value: string | ArrayBuffer | null; metadata?: FileMetadata | unknown } | null>;
   delete(key: string, options?: unknown): Promise<unknown>;
   list(options?: unknown): Promise<KVListResult>;
 
   // ===== 文件别名方法（KV 与 D1 均提供） =====
-  putFile?(fileId: string, value: string, options?: unknown): Promise<unknown>;
+  putFile?(fileId: string, value: string | ArrayBuffer, options?: unknown): Promise<unknown>;
   getFile?(fileId: string, options?: unknown): Promise<unknown>;
   getFileWithMetadata?(fileId: string, options?: unknown): Promise<unknown>;
   deleteFile?(fileId: string, options?: unknown): Promise<unknown>;

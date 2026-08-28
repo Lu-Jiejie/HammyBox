@@ -5,7 +5,7 @@
 /**
  * Telegram 文件信息
  */
-interface TelegramFileDetails {
+export interface TelegramFileDetails {
   file_id: string;
   file_name: string;
   file_size: number;

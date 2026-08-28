@@ -37,9 +37,9 @@ class KVAdapter implements DatabaseAdapter {
     }
 
     // 直接代理到KV的方法
-    async put(key: string, value: string, options?: unknown): Promise<unknown> {
+    async put(key: string, value: string | ArrayBuffer, options?: unknown): Promise<unknown> {
         options = options || {};
-        return await this.kv.put(key, value, options as KVNamespacePutOptions);
+        return await this.kv.put(key, value as never, options as KVNamespacePutOptions);
     }
 
     async get(key: string, options?: unknown): Promise<string | null> {
@@ -47,9 +47,9 @@ class KVAdapter implements DatabaseAdapter {
         return await this.kv.get(key, options as KVNamespaceGetOptions<'text'>);
     }
 
-    async getWithMetadata(key: string, options?: unknown): Promise<{ value: string | null; metadata?: unknown }> {
+    async getWithMetadata(key: string, options?: unknown): Promise<{ value: string | ArrayBuffer | null; metadata?: unknown }> {
         options = options || {};
-        return await this.kv.getWithMetadata(key, options as KVNamespaceGetOptions<'text'>);
+        return await this.kv.getWithMetadata(key, options as KVNamespaceGetOptions<'text'>) as { value: string | ArrayBuffer | null; metadata?: unknown };
     }
 
     async delete(key: string): Promise<unknown> {
@@ -66,12 +66,12 @@ class KVAdapter implements DatabaseAdapter {
         return await this.put(fileId, value, options);
     }
 
-    async getFile(fileId: string, options?: unknown): Promise<{ value: string | null; metadata?: unknown }> {
+    async getFile(fileId: string, options?: unknown): Promise<{ value: string | ArrayBuffer | null; metadata?: unknown }> {
         const result = await this.getWithMetadata(fileId, options);
         return result;
     }
 
-    async getFileWithMetadata(fileId: string, options?: unknown): Promise<{ value: string | null; metadata?: unknown }> {
+    async getFileWithMetadata(fileId: string, options?: unknown): Promise<{ value: string | ArrayBuffer | null; metadata?: unknown }> {
         return await this.getWithMetadata(fileId, options);
     }
 
