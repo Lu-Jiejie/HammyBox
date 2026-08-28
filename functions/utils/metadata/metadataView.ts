@@ -26,15 +26,15 @@ export async function createMetadataViewContext(
 export async function buildFileMetadataForManagement(
   db: { get(key: string): Promise<string | null> },
   env: Env,
-  metadata: FileMetadata = {},
+  metadata: FileMetadata | Record<string, unknown> = {},
   viewContext: MetadataViewContext | null = null,
 ): Promise<Record<string, unknown>> {
   const context = viewContext || (await createMetadataViewContext(db, env));
   const view = stripConfigDerivedMetadata(stripSensitiveMetadata(metadata as Record<string, unknown>));
 
-  enrichS3Metadata(context, metadata, view);
-  enrichHuggingFaceMetadata(context, metadata, view);
-  enrichWebDAVMetadata(context, metadata, view);
+  enrichS3Metadata(context, metadata as FileMetadata, view);
+  enrichHuggingFaceMetadata(context, metadata as FileMetadata, view);
+  enrichWebDAVMetadata(context, metadata as FileMetadata, view);
 
   return view;
 }
@@ -42,12 +42,17 @@ export async function buildFileMetadataForManagement(
 export async function serializeFileRecordForManagement(
   db: { get(key: string): Promise<string | null> },
   env: Env,
-  file: { id: string; name?: string; metadata?: FileMetadata },
+  file: { id?: string; name?: string; metadata?: FileMetadata | unknown },
   viewContext: MetadataViewContext | null = null,
 ): Promise<{ name: string; metadata: Record<string, unknown> }> {
   return {
     name: file.id || file.name,
-    metadata: await buildFileMetadataForManagement(db, env, file.metadata || {}, viewContext),
+    metadata: await buildFileMetadataForManagement(
+      db,
+      env,
+      (file.metadata || {}) as FileMetadata | Record<string, unknown>,
+      viewContext,
+    ),
   };
 }
 

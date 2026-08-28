@@ -14,9 +14,9 @@ const MAX_TREND_SERIES_LIMIT = 20;
 
 /** 趋势统计选项 */
 export interface TrendOptions {
-  timezoneOffset?: number;
-  maxPoints?: number;
-  seriesLimit?: number;
+  timezoneOffset?: number | string;
+  maxPoints?: number | string;
+  seriesLimit?: number | string;
   startDate?: string;
   endDate?: string;
 }
