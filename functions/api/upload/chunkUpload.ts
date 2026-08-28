@@ -1057,7 +1057,7 @@ async function uploadChunkToDiscordWithRetry(
 
 /* ======== 分块合并时与上传相关的工具函数 ======= */
 
-interface ChunkStatusItem {
+export interface ChunkStatusItem {
   index: number;
   key: string;
   status: string;
