@@ -39,6 +39,9 @@ export async function purgeRandomFileListCache(origin, ...dirs) {
         });
 
         for (const dir of dirs) {
+            // v=2 与 random/index.js 的 getRandomFileList 缓存键保持一致；
+            // 同时清理旧版无 v 参数的键，兼容升级前的残留缓存
+            await cache.put(`${origin}/api/randomFileList?folder=${dir}&v=2`, nullResponse);
             await cache.put(`${origin}/api/randomFileList?folder=${dir}`, nullResponse);
         }
     } catch (error) {

@@ -1,5 +1,6 @@
 import { authenticate } from '../../../utils/auth/authCore.js';
 import { readIndex } from '../../../utils/indexManager.js';
+import { purgeRandomFileListCache, purgePublicFileListCache } from '../../../utils/purgeCache.js';
 
 // CORS 跨域响应头
 const corsHeaders = {
@@ -111,6 +112,18 @@ export async function onRequest(context) {
                     console.error(`Failed to clear cache for ${file.id}:`, error);
                 }
             }
+
+            // 清理随机图 API 与公开列表缓存（按索引中出现的目录逐一清理，含根目录）
+            const dirSet = new Set(['']);
+            for (const file of files) {
+                const dir = file.metadata?.Folder
+                    ? file.metadata.Folder.replace(/\/$/, '')
+                    : file.id.split('/').slice(0, -1).join('/');
+                dirSet.add(dir);
+            }
+            const dirs = Array.from(dirSet);
+            await purgeRandomFileListCache(origin, ...dirs);
+            await purgePublicFileListCache(origin, ...dirs);
 
             return new Response(JSON.stringify({
                 success: true,
