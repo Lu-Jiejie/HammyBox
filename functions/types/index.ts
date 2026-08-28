@@ -55,9 +55,8 @@ export type {
   D1FileRow,
 } from './file';
 export type {
-  KVWriteOptions,
-  KVReadOptions,
-  KVListOptions,
   DatabaseAdapter,
   DatabaseConfigStatus,
+  KVListKey,
+  KVListResult,
 } from './db';
