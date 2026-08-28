@@ -1,0 +1,1274 @@
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { fetchSecurityConfig } from '../../utils/sysConfig.js';
+import { TelegramAPI } from '../../utils/storage/telegramAPI.js';
+import { DiscordAPI } from '../../utils/storage/discordAPI.js';
+import { HuggingFaceAPI } from '../../utils/storage/huggingfaceAPI.js';
+import { buildWebDAVUrl, WebDAVAPI } from '../../utils/storage/webdavAPI.js';
+import {
+  setCommonHeaders,
+  setRangeHeaders,
+  handleHeadRequest,
+  getFileContent,
+  isTgChannel,
+  returnWithCheck,
+  return404,
+  returnBlockImg,
+  returnBlockedResponse,
+  isDomainAllowed,
+  FILE_CACHE_CONTROL,
+} from './fileTools.js';
+import { getDatabase } from '../../utils/databaseAdapter.js';
+import { authenticate } from '../../utils/auth/authCore.js';
+import {
+  resolveDiscordCredentials,
+  resolveHuggingFaceCredentials,
+  resolveS3Credentials,
+  resolveTelegramCredentials,
+  resolveWebDAVCredentials,
+} from '../../utils/metadata/channelCredentials.js';
+import { buildCdnFileUrl } from '../../utils/metadata/metadataView.js';
+import type { Env, PagesContext, FileMetadata } from '../../types';
+
+interface FileRequestContext extends PagesContext {
+  url: URL;
+  securityConfig?: unknown;
+  Referer?: string | null;
+  fileAccess?: {
+    isPreviewMode?: boolean;
+    authResult?: { authorized?: boolean };
+    cacheControl?: string;
+  };
+}
+
+interface FileRecord {
+  metadata?: any;
+  value?: string | ArrayBuffer | null;
+}
+
+interface ChunkInfo {
+  index: number;
+  size?: number;
+  fileId?: string;
+  messageId?: string;
+}
+
+export async function onRequest(context: FileRequestContext): Promise<Response> {
+  // Contents of context object
+  const {
+    request, // same as existing Worker API
+    env, // same as existing Worker API
+    params, // if filename includes [id] or [[path]]
+    waitUntil, // same as ctx.waitUntil in existing Worker API
+    next, // used for middleware or to fetch assets
+    data, // arbitrary space for passing data between middlewares
+  } = context;
+
+  // 解码文件ID
+  let fileId = '';
+  try {
+    params.path = decodeURIComponent(params.path as string);
+    fileId = String(params.path).split(',').join('/');
+  } catch (e) {
+    return new Response('Error: Decode Image ID Failed', { status: 400 });
+  }
+
+  const url = new URL(request.url);
+  context.url = url;
+
+  // 读取安全配置（需要提前读取，用于 Referer 检查）
+  const securityConfig = await fetchSecurityConfig(env as Env);
+  context.securityConfig = securityConfig;
+
+  const Referer = request.headers.get('Referer');
+  context.Referer = Referer;
+
+  // Referer 防盗链检查（必须在缓存之前，避免缓存绕过检查）
+  if (!isDomainAllowed(context as any)) {
+    return await returnBlockedResponse(url, 'referer-blocked');
+  }
+
+  // 检查是否为预览模式
+  const isPreviewMode = url.searchParams.get('preview') === 'true';
+
+  // 预览模式不缓存，Range 请求不缓存
+  const shouldCheckCache = !isPreviewMode && !request.headers.get('Range');
+
+  // 检查 Cache API（在 Referer 检查之后）
+  if (shouldCheckCache) {
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      return cached;
+    }
+  }
+
+  context.fileAccess = await buildFileAccessContext(context);
+
+  // 从数据库中获取图片记录
+  const db = getDatabase(env as Env);
+  const imgRecord = await db.getWithMetadata(fileId);
+  if (!imgRecord) {
+    return new Response('Error: Image Not Found', { status: 404 });
+  }
+
+  // 如果metadata不存在，只可能是之前未设置KV，且存储在Telegraph上的图片
+  if (!imgRecord.metadata) {
+    imgRecord.metadata = {};
+  }
+
+  const fileName = (imgRecord.metadata as FileMetadata)?.FileName || fileId;
+  const encodedFileName = encodeURIComponent(fileName);
+  const fileType = (imgRecord.metadata as FileMetadata)?.FileType || null;
+
+  // 检查文件可访问状态
+  let accessRes = await returnWithCheck(context as any, imgRecord as any);
+  if (accessRes.status !== 200) {
+    return accessRes; // 如果不可访问，直接返回
+  }
+
+  /* Cloudflare R2渠道 */
+  if ((imgRecord.metadata as FileMetadata)?.Channel === 'CloudflareR2') {
+    return await cacheResponse(
+      await handleR2File(context, fileId, encodedFileName, fileType),
+      context
+    );
+  }
+
+  /* S3渠道 */
+  if ((imgRecord.metadata as FileMetadata)?.Channel === 'S3') {
+    return await cacheResponse(
+      await handleS3File(context, imgRecord.metadata as FileMetadata, encodedFileName, fileType),
+      context
+    );
+  }
+
+  /* Discord 渠道 */
+  if ((imgRecord.metadata as FileMetadata)?.Channel === 'Discord') {
+    // 检查是否为分片文件
+    if ((imgRecord.metadata as FileMetadata)?.IsChunked === true) {
+      return await cacheResponse(
+        await handleDiscordChunkedFile(context, imgRecord, encodedFileName, fileType),
+        context
+      );
+    }
+    return await cacheResponse(
+      await handleDiscordFile(context, imgRecord.metadata as FileMetadata, encodedFileName, fileType),
+      context
+    );
+  }
+
+  /* HuggingFace 渠道 */
+  if ((imgRecord.metadata as FileMetadata)?.Channel === 'HuggingFace') {
+    return await cacheResponse(
+      await handleHuggingFaceFile(context, imgRecord.metadata as FileMetadata, encodedFileName, fileType),
+      context
+    );
+  }
+
+  /* WebDAV 渠道 */
+  if ((imgRecord.metadata as FileMetadata)?.Channel === 'WebDAV') {
+    return await cacheResponse(
+      await handleWebDAVFile(context, imgRecord.metadata as FileMetadata, encodedFileName, fileType),
+      context
+    );
+  }
+
+  /* 外链渠道 */
+  if ((imgRecord.metadata as FileMetadata)?.Channel === 'External') {
+    // 直接重定向到外链（不缓存重定向）
+    return Response.redirect((imgRecord.metadata as FileMetadata)?.ExternalLink as string, 302);
+  }
+
+  /* Telegram及Telegraph渠道 */
+
+  // 构建目标 URL
+  let targetUrl = '';
+
+  if (isTgChannel(imgRecord as any)) {
+    let TgFileID = ''; // Tg的file_id
+
+    // 检查是否为分片文件
+    if ((imgRecord.metadata as FileMetadata)?.IsChunked === true) {
+      return await cacheResponse(
+        await handleTelegramChunkedFile(context, imgRecord, encodedFileName, fileType),
+        context
+      );
+    }
+
+    // 优先使用 TgFileId（新格式），兼容旧格式（从 fileId 提取）
+    TgFileID = (imgRecord.metadata as FileMetadata)?.TgFileId as string || fileId.split('.')[0];
+
+    if (!TgFileID) {
+      return new Response('Error: Failed to fetch image', { status: 500 });
+    }
+
+    // 获取TG图片真实地址（支持代理域名）
+    const tgCredentials = await resolveTelegramCredentials(
+      db,
+      env as Env,
+      imgRecord.metadata as FileMetadata
+    );
+    const TgBotToken = tgCredentials.botToken as string;
+    const TgProxyUrl = (tgCredentials.proxyUrl as string) || '';
+    console.log(
+      `[Telegram] Fetching file with bot token ending: ...${TgBotToken.slice(-10)}, fileId: ${TgFileID}`
+    );
+    const tgApi = new TelegramAPI(TgBotToken, TgProxyUrl);
+    const filePath = await tgApi.getFilePath(TgFileID);
+    if (filePath === null) {
+      return new Response('Error: Failed to fetch image path', { status: 500 });
+    }
+    // 使用代理域名或官方域名
+    const fileDomain = TgProxyUrl ? `https://${TgProxyUrl}` : 'https://api.telegram.org';
+    targetUrl = `${fileDomain}/file/bot${TgBotToken}/${filePath}`;
+  } else {
+    targetUrl = 'https://telegra.ph/' + url.pathname + url.search;
+  }
+
+  try {
+    const response = await getFileContent(request, targetUrl);
+
+    if (response === null) {
+      return new Response('Error: Failed to fetch image', { status: 500 });
+    } else if (response.status === 404) {
+      return await return404(url);
+    }
+
+    const headers = new Headers(response.headers);
+    setCommonHeaders(headers, encodedFileName, fileType, getFileCacheControl(context));
+
+    const newRes = new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+
+    return await cacheResponse(newRes, context);
+  } catch (error: any) {
+    return new Response('Error: ' + error, { status: 500 });
+  }
+}
+
+async function buildFileAccessContext(context: FileRequestContext) {
+  const { request, env, url } = context;
+  const isPreviewMode = url.searchParams.get('preview') === 'true';
+  const fileAccess: FileRequestContext['fileAccess'] = {
+    isPreviewMode: isPreviewMode,
+    authResult: { authorized: false },
+    cacheControl: undefined,
+  };
+
+  // 预览模式或普通请求都尝试验证会话
+  fileAccess!.authResult = await authenticate({
+    env: env as Env,
+    request,
+    requiredPermission: 'manage',
+  });
+
+  return fileAccess;
+}
+
+function getFileCacheControl(context: FileRequestContext): string | undefined {
+  return context.fileAccess?.cacheControl;
+}
+
+function getChunkedFileCacheControl(context: FileRequestContext): string {
+  // Cloudflare CDN 支持 Range 请求，可以安全缓存分片文件
+  // 对于管理预览，仍使用 NO_STORE
+  return getFileCacheControl(context) === FILE_CACHE_CONTROL.NO_STORE
+    ? FILE_CACHE_CONTROL.NO_STORE
+    : FILE_CACHE_CONTROL.PUBLIC; // 改为 PUBLIC，让 CDN 缓存大文件
+}
+
+// 处理 Telegram 渠道分片文件读取
+async function handleTelegramChunkedFile(
+  context: FileRequestContext,
+  imgRecord: FileRecord,
+  encodedFileName: string,
+  fileType: string | null
+): Promise<Response> {
+  const { env, request, url, Referer } = context;
+
+  const metadata = (imgRecord.metadata || {}) as FileMetadata;
+  const db = getDatabase(env as Env);
+  const tgCredentials = await resolveTelegramCredentials(db, env as Env, metadata);
+  const TgBotToken = tgCredentials.botToken as string;
+  const TgProxyUrl = (tgCredentials.proxyUrl as string) || '';
+
+  // 从KV的value中读取分片信息
+  let chunks: ChunkInfo[] = [];
+  try {
+    if (imgRecord.value) {
+      chunks = JSON.parse(String(imgRecord.value));
+      // 确保分片按索引排序
+      chunks.sort((a, b) => a.index - b.index);
+    }
+  } catch (parseError) {
+    console.error('Failed to parse chunks data:', parseError);
+    return new Response('Error: Invalid chunks data', { status: 500 });
+  }
+
+  if (chunks.length === 0) {
+    return new Response('Error: No chunks found for this file', { status: 500 });
+  }
+
+  // 验证分片完整性
+  const expectedChunks = (metadata.TotalChunks as number) || chunks.length;
+  if (chunks.length !== expectedChunks) {
+    return new Response(
+      `Error: Missing chunks, expected ${expectedChunks}, got ${chunks.length}`,
+      { status: 500 }
+    );
+  }
+
+  // 计算文件总大小
+  const totalSize = chunks.reduce((total, chunk) => total + (chunk.size || 0), 0);
+
+  // 构建响应头
+  const headers = new Headers();
+  setCommonHeaders(headers, encodedFileName, fileType, getChunkedFileCacheControl(context));
+  headers.set('Content-Length', totalSize.toString());
+
+  // 添加ETag支持
+  const etag = `"${(metadata.TimeStamp as number) || Date.now()}-${totalSize}"`;
+  headers.set('ETag', etag);
+
+  // 检查If-None-Match头（304缓存）
+  const ifNoneMatch = request.headers.get('If-None-Match');
+  if (ifNoneMatch && ifNoneMatch === etag) {
+    return new Response(null, {
+      status: 304,
+      headers: {
+        ETag: etag,
+        'Cache-Control': headers.get('Cache-Control'),
+        'Accept-Ranges': 'bytes',
+      },
+    });
+  }
+
+  // 检查Range请求头
+  const range = request.headers.get('Range');
+  let rangeStart = 0;
+  let rangeEnd = totalSize - 1;
+  let isRangeRequest = false;
+
+  if (range) {
+    const matches = range.match(/bytes=(\d+)-(\d*)/);
+    if (matches) {
+      rangeStart = parseInt(matches[1]);
+      rangeEnd = matches[2] ? parseInt(matches[2]) : totalSize - 1;
+      isRangeRequest = true;
+
+      // 验证范围有效性
+      if (rangeStart >= totalSize || rangeEnd >= totalSize || rangeStart > rangeEnd) {
+        return new Response('Range Not Satisfiable', { status: 416 });
+      }
+    }
+  }
+
+  // 处理HEAD请求
+  if (request.method === 'HEAD') {
+    return handleHeadRequest(headers, etag);
+  }
+
+  try {
+    // 创建支持Range请求的流
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          let currentPosition = 0;
+
+          for (let i = 0; i < chunks.length; i++) {
+            const chunk = chunks[i];
+            const chunkSize = chunk.size || 0;
+
+            // 如果当前分片完全在请求范围之前，跳过
+            if (currentPosition + chunkSize <= rangeStart) {
+              currentPosition += chunkSize;
+              continue;
+            }
+
+            // 如果当前分片完全在请求范围之后，结束
+            if (currentPosition > rangeEnd) {
+              break;
+            }
+
+            // 获取分片数据（支持代理域名）
+            const chunkData = await fetchTelegramChunkWithRetry(
+              TgBotToken,
+              chunk,
+              TgProxyUrl,
+              3
+            );
+            if (!chunkData) {
+              throw new Error(`Failed to fetch chunk ${chunk.index} after retries`);
+            }
+
+            // 计算在当前分片中的起始和结束位置
+            const chunkStart = Math.max(0, rangeStart - currentPosition);
+            const chunkEnd = Math.min(chunkSize, rangeEnd - currentPosition + 1);
+
+            // 如果需要部分分片数据
+            if (chunkStart > 0 || chunkEnd < chunkSize) {
+              const partialData = chunkData.slice(chunkStart, chunkEnd);
+              controller.enqueue(partialData);
+            } else {
+              controller.enqueue(chunkData);
+            }
+
+            currentPosition += chunkSize;
+          }
+
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+    });
+
+    // 设置Range相关头部
+    if (isRangeRequest) {
+      setRangeHeaders(headers, rangeStart, rangeEnd, totalSize);
+
+      return new Response(stream, {
+        status: 206, // Partial Content
+        headers,
+      });
+    } else {
+      // 完整文件响应，使用公开缓存策略让 CDN 缓存
+      return new Response(stream, {
+        status: 200,
+        headers,
+      });
+    }
+  } catch (error: any) {
+    return new Response(`Error: Failed to reconstruct chunked file - ${error.message}`, {
+      status: 500,
+    });
+  }
+}
+
+// 带重试机制的Telegram分片获取函数（支持代理域名）
+async function fetchTelegramChunkWithRetry(
+  botToken: string,
+  chunk: ChunkInfo,
+  proxyUrl = '',
+  maxRetries = 3
+): Promise<Uint8Array | null> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const tgApi = new TelegramAPI(botToken, proxyUrl);
+
+      const response = await tgApi.getFileContent(chunk.fileId as string);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      // 验证分片大小是否匹配
+      const chunkData = await response.arrayBuffer();
+      const actualSize = chunkData.byteLength;
+
+      // 如果有期望大小且不匹配，抛出错误
+      if (chunk.size && actualSize !== chunk.size) {
+        console.warn(
+          `Chunk ${chunk.index} size mismatch: expected ${chunk.size}, got ${actualSize}`
+        );
+      }
+
+      return new Uint8Array(chunkData);
+    } catch (error: any) {
+      console.warn(`Chunk ${chunk.index} fetch attempt ${attempt + 1} failed:`, error.message);
+
+      if (attempt === maxRetries - 1) {
+        return null; // 最后一次尝试也失败了
+      }
+
+      // 重试前等待一段时间
+      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+  }
+
+  return null;
+}
+
+// 处理 Discord 渠道分片文件读取
+async function handleDiscordChunkedFile(
+  context: FileRequestContext,
+  imgRecord: FileRecord,
+  encodedFileName: string,
+  fileType: string | null
+): Promise<Response> {
+  const { env, request, url, Referer } = context;
+
+  const metadata = (imgRecord.metadata || {}) as FileMetadata;
+  const db = getDatabase(env as Env);
+  const discordCredentials = await resolveDiscordCredentials(db, env as Env, metadata);
+  const botToken = discordCredentials.botToken as string;
+  const channelId = discordCredentials.channelId as string;
+  const proxyUrl = discordCredentials.proxyUrl as string;
+
+  // 从KV的value中读取分片信息
+  let chunks: ChunkInfo[] = [];
+  try {
+    if (imgRecord.value) {
+      chunks = JSON.parse(String(imgRecord.value));
+      // 确保分片按索引排序
+      chunks.sort((a, b) => a.index - b.index);
+    }
+  } catch (parseError) {
+    console.error('Failed to parse Discord chunks data:', parseError);
+    return new Response('Error: Invalid chunks data', { status: 500 });
+  }
+
+  if (chunks.length === 0) {
+    return new Response('Error: No chunks found for this file', { status: 500 });
+  }
+
+  // 验证分片完整性
+  const expectedChunks = (metadata.TotalChunks as number) || chunks.length;
+  if (chunks.length !== expectedChunks) {
+    return new Response(
+      `Error: Missing chunks, expected ${expectedChunks}, got ${chunks.length}`,
+      { status: 500 }
+    );
+  }
+
+  // 计算文件总大小
+  const totalSize = chunks.reduce((total, chunk) => total + (chunk.size || 0), 0);
+
+  // 构建响应头
+  const headers = new Headers();
+  setCommonHeaders(headers, encodedFileName, fileType, getChunkedFileCacheControl(context));
+  headers.set('Content-Length', totalSize.toString());
+
+  // 添加ETag支持
+  const etag = `"${(metadata.TimeStamp as number) || Date.now()}-${totalSize}"`;
+  headers.set('ETag', etag);
+
+  // 检查If-None-Match头（304缓存）
+  const ifNoneMatch = request.headers.get('If-None-Match');
+  if (ifNoneMatch && ifNoneMatch === etag) {
+    return new Response(null, {
+      status: 304,
+      headers: {
+        ETag: etag,
+        'Cache-Control': headers.get('Cache-Control'),
+        'Accept-Ranges': 'bytes',
+      },
+    });
+  }
+
+  // 检查Range请求头
+  const range = request.headers.get('Range');
+  let rangeStart = 0;
+  let rangeEnd = totalSize - 1;
+  let isRangeRequest = false;
+
+  if (range) {
+    const matches = range.match(/bytes=(\d+)-(\d*)/);
+    if (matches) {
+      rangeStart = parseInt(matches[1]);
+      rangeEnd = matches[2] ? parseInt(matches[2]) : totalSize - 1;
+      isRangeRequest = true;
+
+      // 验证范围有效性
+      if (rangeStart >= totalSize || rangeEnd >= totalSize || rangeStart > rangeEnd) {
+        return new Response('Range Not Satisfiable', { status: 416 });
+      }
+    }
+  }
+
+  // 处理HEAD请求
+  if (request.method === 'HEAD') {
+    return handleHeadRequest(headers, etag);
+  }
+
+  try {
+    // 创建支持Range请求的流
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          let currentPosition = 0;
+
+          for (let i = 0; i < chunks.length; i++) {
+            const chunk = chunks[i];
+            const chunkSize = chunk.size || 0;
+
+            // 如果当前分片完全在请求范围之前，跳过
+            if (currentPosition + chunkSize <= rangeStart) {
+              currentPosition += chunkSize;
+              continue;
+            }
+
+            // 如果当前分片完全在请求范围之后，结束
+            if (currentPosition > rangeEnd) {
+              break;
+            }
+
+            // 获取分片数据（每次通过 API 获取新的附件 URL）
+            const chunkData = await fetchDiscordChunkWithRetry(
+              botToken,
+              channelId,
+              chunk,
+              proxyUrl,
+              3
+            );
+            if (!chunkData) {
+              throw new Error(`Failed to fetch Discord chunk ${chunk.index} after retries`);
+            }
+
+            // 计算在当前分片中的起始和结束位置
+            const chunkStart = Math.max(0, rangeStart - currentPosition);
+            const chunkEnd = Math.min(chunkSize, rangeEnd - currentPosition + 1);
+
+            // 如果需要部分分片数据
+            if (chunkStart > 0 || chunkEnd < chunkSize) {
+              const partialData = chunkData.slice(chunkStart, chunkEnd);
+              controller.enqueue(partialData);
+            } else {
+              controller.enqueue(chunkData);
+            }
+
+            currentPosition += chunkSize;
+          }
+
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+    });
+
+    // 设置Range相关头部
+    if (isRangeRequest) {
+      setRangeHeaders(headers, rangeStart, rangeEnd, totalSize);
+
+      return new Response(stream, {
+        status: 206, // Partial Content
+        headers,
+      });
+    } else {
+      // 完整文件响应，使用公开缓存策略让 CDN 缓存
+      return new Response(stream, {
+        status: 200,
+        headers,
+      });
+    }
+  } catch (error: any) {
+    return new Response(
+      `Error: Failed to reconstruct Discord chunked file - ${error.message}`,
+      { status: 500 }
+    );
+  }
+}
+
+// 带重试机制的Discord分片获取函数（每次通过 API 获取新的附件 URL）
+async function fetchDiscordChunkWithRetry(
+  botToken: string,
+  channelId: string,
+  chunk: ChunkInfo,
+  proxyUrl: string,
+  maxRetries = 3
+): Promise<Uint8Array | null> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // 通过 Discord API 获取新的附件 URL（因为 URL 会在约24小时后过期）
+      const discordAPI = new DiscordAPI(botToken);
+      let fileUrl = await discordAPI.getFileURL(channelId, chunk.messageId as string);
+
+      if (!fileUrl) {
+        throw new Error('Failed to get attachment URL from Discord API');
+      }
+
+      // 如果配置了代理 URL，替换 Discord CDN 域名
+      if (proxyUrl) {
+        fileUrl = fileUrl.replace('https://cdn.discordapp.com', `https://${proxyUrl}`);
+      }
+
+      const response = await fetch(fileUrl);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      // 验证分片大小是否匹配
+      const chunkData = await response.arrayBuffer();
+      const actualSize = chunkData.byteLength;
+
+      // 如果有期望大小且不匹配，记录警告
+      if (chunk.size && actualSize !== chunk.size) {
+        console.warn(
+          `Discord chunk ${chunk.index} size mismatch: expected ${chunk.size}, got ${actualSize}`
+        );
+      }
+
+      return new Uint8Array(chunkData);
+    } catch (error: any) {
+      console.warn(
+        `Discord chunk ${chunk.index} fetch attempt ${attempt + 1} failed:`,
+        error.message
+      );
+
+      if (attempt === maxRetries - 1) {
+        return null; // 最后一次尝试也失败了
+      }
+
+      // 重试前等待一段时间
+      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+  }
+
+  return null;
+}
+
+// 处理R2文件读取
+async function handleR2File(
+  context: FileRequestContext,
+  fileId: string,
+  encodedFileName: string,
+  fileType: string | null
+): Promise<Response> {
+  const { env, request, url, Referer } = context;
+
+  try {
+    // 检查是否配置了R2
+    if (
+      typeof (env as Env).hammybox_r2 == 'undefined' ||
+      (env as Env).hammybox_r2 == null ||
+      (env as Env).hammybox_r2 == ('' as unknown)
+    ) {
+      return new Response('Error: Please configure R2 database', { status: 500 });
+    }
+
+    const R2DataBase = (env as Env).hammybox_r2;
+
+    // 检查Range请求头
+    const range = request.headers.get('Range');
+    let object: R2ObjectBody | null;
+
+    if (range) {
+      // 处理Range请求
+      const matches = range.match(/bytes=(\d+)-(\d*)/);
+      if (matches) {
+        const start = parseInt(matches[1]);
+        const end = matches[2] ? parseInt(matches[2]) : undefined;
+
+        const rangeOptions: { range: { offset: number; length?: number } } = {
+          range: {
+            offset: start,
+          },
+        };
+        if (end !== undefined) {
+          rangeOptions.range.length = end - start + 1;
+        }
+
+        object = await R2DataBase.get(fileId, rangeOptions);
+      } else {
+        object = await R2DataBase.get(fileId);
+      }
+    } else {
+      object = await R2DataBase.get(fileId);
+    }
+
+    if (object === null) {
+      return new Response('Error: Failed to fetch file', { status: 500 });
+    }
+
+    const headers = new Headers();
+    object.writeHttpMetadata(headers);
+    setCommonHeaders(headers, encodedFileName, fileType, getFileCacheControl(context));
+
+    // 处理HEAD请求
+    if (request.method === 'HEAD') {
+      return handleHeadRequest(headers);
+    }
+
+    // 如果是Range请求，设置相应的状态码和头
+    if (range && object.range) {
+      const rangeObj = object.range as { offset: number; length: number };
+      headers.set(
+        'Content-Range',
+        `bytes ${rangeObj.offset}-${rangeObj.offset + rangeObj.length - 1}/${object.size}`
+      );
+      headers.set('Content-Length', rangeObj.length.toString());
+
+      return new Response(object.body, {
+        status: 206, // Partial Content
+        headers,
+      });
+    }
+
+    // 正常请求
+    return new Response(object.body, {
+      status: 200,
+      headers,
+    });
+  } catch (error: any) {
+    return new Response(`Error: Failed to fetch from R2 - ${error.message}`, { status: 500 });
+  }
+}
+
+// 处理S3文件读取
+async function handleS3File(
+  context: FileRequestContext,
+  metadata: FileMetadata,
+  encodedFileName: string,
+  fileType: string | null
+): Promise<Response> {
+  const { Referer, url, request } = context;
+
+  // 检查是否配置了 CDN 文件完整路径
+  const cdnFileUrl = await getS3CdnFileUrl(context.env, metadata);
+
+  // 如果配置了 CDN 文件路径，通过 CDN 读取文件
+  if (cdnFileUrl) {
+    try {
+      // 处理 HEAD 请求
+      if (request.method === 'HEAD') {
+        const headers = new Headers();
+        setCommonHeaders(headers, encodedFileName, fileType, getFileCacheControl(context));
+        return handleHeadRequest(headers);
+      }
+
+      // 构建请求头
+      const fetchHeaders: Record<string, string> = {};
+
+      // 支持 Range 请求
+      const range = request.headers.get('Range');
+      if (range) {
+        fetchHeaders['Range'] = range;
+      }
+
+      // 通过 CDN 获取文件（直接使用完整路径，无需拼接）
+      const response = await fetch(cdnFileUrl, {
+        method: 'GET',
+        headers: fetchHeaders,
+      });
+
+      if (!response.ok && response.status !== 206) {
+        // CDN 读取失败，回退到 S3 API
+        console.warn(`CDN fetch failed (${response.status}), falling back to S3 API`);
+        return await handleS3FileViaAPI(context, metadata, encodedFileName, fileType);
+      }
+
+      // 构建响应头
+      const headers = new Headers();
+      setCommonHeaders(headers, encodedFileName, fileType, getFileCacheControl(context));
+
+      // 复制相关头部
+      if (response.headers.get('Content-Length')) {
+        headers.set('Content-Length', response.headers.get('Content-Length') as string);
+      }
+      if (response.headers.get('Content-Range')) {
+        headers.set('Content-Range', response.headers.get('Content-Range') as string);
+      }
+
+      return new Response(response.body, {
+        status: response.status,
+        headers,
+      });
+    } catch (error: any) {
+      // CDN 读取出错，回退到 S3 API
+      console.error(`CDN fetch error: ${error.message}, falling back to S3 API`);
+      return await handleS3FileViaAPI(context, metadata, encodedFileName, fileType);
+    }
+  }
+
+  // 没有配置 CDN 文件路径，使用 S3 API
+  return await handleS3FileViaAPI(context, metadata, encodedFileName, fileType);
+}
+
+async function getS3CdnFileUrl(env: Env, metadata: FileMetadata): Promise<string> {
+  try {
+    const db = getDatabase(env);
+    const s3Credentials = await resolveS3Credentials(db, env, metadata);
+    return buildCdnFileUrl(s3Credentials.cdnDomain, s3Credentials.key);
+  } catch (error: any) {
+    console.warn('Failed to build S3 CDN file URL:', error.message);
+    return '';
+  }
+}
+
+// 通过 S3 API 读取文件
+async function handleS3FileViaAPI(
+  context: FileRequestContext,
+  metadata: FileMetadata,
+  encodedFileName: string,
+  fileType: string | null
+): Promise<Response> {
+  const { Referer, url, request, env } = context;
+  const db = getDatabase(env as Env);
+  const s3Credentials = await resolveS3Credentials(db, env as Env, metadata);
+
+  const s3Client = new S3Client({
+    region: s3Credentials.region || 'auto',
+    endpoint: s3Credentials.endpoint,
+    credentials: {
+      accessKeyId: s3Credentials.accessKeyId as string,
+      secretAccessKey: s3Credentials.secretAccessKey as string,
+    },
+    forcePathStyle: s3Credentials.pathStyle || false,
+  });
+
+  const bucketName = s3Credentials.bucketName as string;
+  const key = s3Credentials.key as string;
+
+  try {
+    // 检查Range请求头
+    const range = request.headers.get('Range');
+    const commandParams: Record<string, unknown> = {
+      Bucket: bucketName,
+      Key: key,
+    };
+
+    if (range) {
+      // 添加Range参数用于部分内容请求
+      commandParams.Range = range;
+    }
+
+    const command = new GetObjectCommand(commandParams as any);
+    const response = await s3Client.send(command);
+
+    // 设置响应头
+    const headers = new Headers();
+    setCommonHeaders(headers, encodedFileName, fileType, getFileCacheControl(context));
+
+    // 设置Content-Length和Content-Range头
+    if (response.ContentLength) {
+      headers.set('Content-Length', response.ContentLength.toString());
+    }
+
+    if (response.ContentRange) {
+      headers.set('Content-Range', response.ContentRange);
+    }
+
+    // 处理HEAD请求
+    if (request.method === 'HEAD') {
+      return handleHeadRequest(headers);
+    }
+
+    // 返回响应，支持流式传输
+    const statusCode = range ? 206 : 200; // Range请求返回206 Partial Content
+    return new Response(response.Body as ReadableStream, {
+      status: statusCode,
+      headers,
+    });
+  } catch (error: any) {
+    return new Response(`Error: Failed to fetch from S3 - ${error.message}`, { status: 500 });
+  }
+}
+
+// 处理 Discord 文件读取
+async function handleDiscordFile(
+  context: FileRequestContext,
+  metadata: FileMetadata,
+  encodedFileName: string,
+  fileType: string | null
+): Promise<Response> {
+  const { env, request, url, Referer } = context;
+
+  try {
+    const db = getDatabase(env as Env);
+    const discordCredentials = await resolveDiscordCredentials(db, env as Env, metadata);
+    // 每次读取都通过 API 获取新的附件 URL（因为 Discord 附件 URL 会在约24小时后过期）
+    let fileUrl: string | null = null;
+    if (
+      discordCredentials.messageId &&
+      discordCredentials.channelId &&
+      discordCredentials.botToken
+    ) {
+      const discordAPI = new DiscordAPI(discordCredentials.botToken as string);
+      fileUrl = await discordAPI.getFileURL(
+        discordCredentials.channelId as string,
+        discordCredentials.messageId as string
+      );
+    }
+
+    if (!fileUrl) {
+      return new Response('Error: Discord file URL not found', { status: 500 });
+    }
+
+    // 如果配置了代理 URL，替换 Discord CDN 域名
+    if (discordCredentials.proxyUrl) {
+      fileUrl = fileUrl.replace(
+        'https://cdn.discordapp.com',
+        `https://${discordCredentials.proxyUrl}`
+      );
+    }
+
+    // 处理 HEAD 请求
+    if (request.method === 'HEAD') {
+      const headers = new Headers();
+      setCommonHeaders(headers, encodedFileName, fileType, getFileCacheControl(context));
+      return handleHeadRequest(headers);
+    }
+
+    // 获取文件内容（支持 Range 请求）
+    const fetchHeaders: Record<string, string> = {};
+    const range = request.headers.get('Range');
+    if (range) {
+      fetchHeaders['Range'] = range;
+    }
+
+    const response = await fetch(fileUrl, {
+      method: 'GET',
+      headers: fetchHeaders,
+    });
+
+    if (!response.ok && response.status !== 206) {
+      return new Response(`Error: Failed to fetch from Discord - ${response.status}`, {
+        status: response.status,
+      });
+    }
+
+    // 构建响应头
+    const headers = new Headers();
+    setCommonHeaders(headers, encodedFileName, fileType, getFileCacheControl(context));
+
+    // 复制相关头部
+    if (response.headers.get('Content-Length')) {
+      headers.set('Content-Length', response.headers.get('Content-Length') as string);
+    }
+    if (response.headers.get('Content-Range')) {
+      headers.set('Content-Range', response.headers.get('Content-Range') as string);
+    }
+
+    return new Response(response.body, {
+      status: response.status,
+      headers,
+    });
+  } catch (error: any) {
+    return new Response(`Error: Failed to fetch from Discord - ${error.message}`, {
+      status: 500,
+    });
+  }
+}
+
+// 处理 HuggingFace 文件读取
+async function handleHuggingFaceFile(
+  context: FileRequestContext,
+  metadata: FileMetadata,
+  encodedFileName: string,
+  fileType: string | null
+): Promise<Response> {
+  const { env, request, url, Referer } = context;
+
+  try {
+    const db = getDatabase(env as Env);
+    const hfCredentials = await resolveHuggingFaceCredentials(db, env as Env, metadata);
+    const hfRepo = hfCredentials.repo as string;
+    const hfFilePath = hfCredentials.filePath as string;
+    const hfToken = hfCredentials.token as string;
+    const hfIsPrivate = hfCredentials.isPrivate || false;
+
+    if (!hfRepo || !hfFilePath) {
+      return new Response('Error: HuggingFace file info not found', { status: 500 });
+    }
+
+    // 构建文件 URL
+    const fileUrl = `https://huggingface.co/datasets/${hfRepo}/resolve/main/${hfFilePath}`;
+    const fileSize = HuggingFaceAPI.getMetadataFileSize(metadata);
+
+    // 处理 HEAD 请求
+    if (request.method === 'HEAD') {
+      const headers = new Headers();
+      setCommonHeaders(headers, encodedFileName, fileType, getFileCacheControl(context));
+      if (fileSize) {
+        headers.set('Content-Length', fileSize.toString());
+      }
+      return handleHeadRequest(headers);
+    }
+
+    // 构建请求头
+    const fetchHeaders: Record<string, string> = {};
+
+    // 私有仓库需要 Authorization
+    if (hfIsPrivate && hfToken) {
+      fetchHeaders['Authorization'] = `Bearer ${hfToken}`;
+    }
+
+    // 支持 Range 请求
+    const range = request.headers.get('Range');
+    if (range) {
+      fetchHeaders['Range'] = range;
+    }
+
+    const response = await fetch(fileUrl, {
+      method: 'GET',
+      headers: fetchHeaders,
+    });
+
+    if (!response.ok && response.status !== 206) {
+      return new Response(`Error: Failed to fetch from HuggingFace - ${response.status}`, {
+        status: response.status,
+      });
+    }
+
+    // 构建响应头
+    const headers = new Headers();
+    setCommonHeaders(headers, encodedFileName, fileType, getFileCacheControl(context));
+
+    // 复制相关头部
+    if (response.headers.get('Content-Length')) {
+      headers.set('Content-Length', response.headers.get('Content-Length') as string);
+    }
+    if (response.headers.get('Content-Range')) {
+      headers.set('Content-Range', response.headers.get('Content-Range') as string);
+    }
+
+    return new Response(response.body, {
+      status: response.status,
+      headers,
+    });
+  } catch (error: any) {
+    return new Response(`Error: Failed to fetch from HuggingFace - ${error.message}`, {
+      status: 500,
+    });
+  }
+}
+
+// 处理 WebDAV 文件读取
+async function handleWebDAVFile(
+  context: FileRequestContext,
+  metadata: FileMetadata,
+  encodedFileName: string,
+  fileType: string | null
+): Promise<Response> {
+  const { request, url, Referer } = context;
+
+  try {
+    const db = getDatabase(context.env as Env);
+    const webdavCredentials = await resolveWebDAVCredentials(db, context.env as Env, metadata);
+    const filePath = webdavCredentials.filePath;
+    const publicUrl = getWebDAVPublicFileUrl(webdavCredentials, filePath as string);
+
+    if (!filePath && !publicUrl) {
+      return new Response('Error: WebDAV file info not found', { status: 500 });
+    }
+
+    const headers = new Headers();
+    setCommonHeaders(headers, encodedFileName, fileType, getFileCacheControl(context));
+
+    const fetchHeaders: Record<string, string> = {};
+    const range = request.headers.get('Range');
+    if (range) {
+      fetchHeaders['Range'] = range;
+    }
+
+    let response: Response;
+    if (publicUrl) {
+      response = await fetch(publicUrl, {
+        method: request.method === 'HEAD' ? 'HEAD' : 'GET',
+        headers: fetchHeaders,
+      });
+
+      if (
+        !response.ok &&
+        response.status !== 206 &&
+        response.status !== 304 &&
+        webdavCredentials.baseUrl &&
+        filePath
+      ) {
+        try {
+          const webdavAPI = new WebDAVAPI(webdavCredentials as any);
+          response = await webdavAPI.getFile(filePath as string, {
+            method: request.method === 'HEAD' ? 'HEAD' : 'GET',
+            headers: fetchHeaders,
+          });
+        } catch (fallbackError: any) {
+          console.warn('WebDAV public URL fallback failed:', fallbackError.message);
+        }
+      }
+    } else {
+      if (!webdavCredentials.baseUrl || !filePath) {
+        return new Response('Error: WebDAV channel config not found', { status: 500 });
+      }
+
+      const webdavAPI = new WebDAVAPI(webdavCredentials as any);
+      response = await webdavAPI.getFile(filePath as string, {
+        method: request.method === 'HEAD' ? 'HEAD' : 'GET',
+        headers: fetchHeaders,
+      });
+    }
+
+    if (!response.ok && response.status !== 206 && response.status !== 304) {
+      return new Response(`Error: Failed to fetch from WebDAV - ${response.status}`, {
+        status: response.status,
+      });
+    }
+
+    if (response.headers.get('Content-Length')) {
+      headers.set('Content-Length', response.headers.get('Content-Length') as string);
+    }
+    if (response.headers.get('Content-Range')) {
+      headers.set('Content-Range', response.headers.get('Content-Range') as string);
+    }
+    if (response.headers.get('ETag')) {
+      headers.set('ETag', response.headers.get('ETag') as string);
+    }
+    if (response.status === 304) {
+      return new Response(null, { status: 304, headers });
+    }
+    if (request.method === 'HEAD') {
+      return handleHeadRequest(headers, response.headers.get('ETag'));
+    }
+
+    return new Response(response.body, {
+      status: response.status,
+      headers,
+    });
+  } catch (error: any) {
+    return new Response(`Error: Failed to fetch from WebDAV - ${error.message}`, {
+      status: 500,
+    });
+  }
+}
+
+function getWebDAVPublicFileUrl(webdavCredentials: any, filePath: string): string {
+  if (webdavCredentials.publicUrl && filePath) {
+    try {
+      return buildWebDAVUrl(webdavCredentials.publicUrl, filePath);
+    } catch (error: any) {
+      console.warn('Invalid WebDAV public URL config:', error.message);
+    }
+  }
+
+  return '';
+}
+
+/**
+ * 缓存响应到 Cache API
+ * @param response - 要缓存的响应
+ * @param context - 上下文对象
+ * @returns 原响应（用于链式调用）
+ */
+async function cacheResponse(
+  response: Response,
+  context: FileRequestContext
+): Promise<Response> {
+  const { request, url, waitUntil, fileAccess } = context;
+
+  // 只缓存成功的 GET 响应（不缓存 HEAD、Range、预览模式、错误响应）
+  if (
+    request.method !== 'GET' ||
+    response.status !== 200 ||
+    fileAccess?.isPreviewMode ||
+    request.headers.get('Range')
+  ) {
+    return response;
+  }
+
+  try {
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+
+    // 异步写入缓存，不阻塞响应
+    waitUntil(cache.put(cacheKey, response.clone()));
+  } catch (error) {
+    console.error('Failed to cache response:', error);
+  }
+
+  return response;
+}
