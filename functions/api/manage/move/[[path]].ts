@@ -1,0 +1,325 @@
+import { S3Client, CopyObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import {
+  purgeCFCache,
+  purgeRandomFileListCache,
+  purgePublicFileListCache,
+  purgeFileCache,
+} from '../../../utils/purgeCache.js';
+import { moveFileInIndex, batchMoveFilesInIndex } from '../../../utils/indexManager.js';
+import { getDatabase } from '../../../utils/databaseAdapter.js';
+import { sanitizeUploadFolder } from '../../upload/uploadTools.js';
+import { WebDAVAPI } from '../../../utils/storage/webdavAPI.js';
+import { resolveS3Credentials, resolveWebDAVCredentials } from '../../../utils/metadata/channelCredentials.js';
+import { cleanPersistedMetadata } from '../../../utils/metadata/metadataSecurity.js';
+import type { Env, FileMetadata, PagesContext } from '../../../types';
+
+export async function onRequest(context: PagesContext): Promise<Response> {
+  const { request, env, params, waitUntil } = context;
+
+  const url = new URL(request.url);
+
+  // 读取目标文件夹，并进行路径安全处理
+  const rawDist = url.searchParams.get('dist') || '';
+  const dist = sanitizeUploadFolder(rawDist);
+
+  // 读取folder参数，判断是否为文件夹移动请求
+  const folder = url.searchParams.get('folder');
+  if (folder === 'true') {
+    try {
+      params.path = decodeURIComponent(params.path as string);
+      // 使用队列存储需要处理的文件夹
+      const folderQueue: Array<{ path: string; dist: string }> = [
+        {
+          path: String(params.path).split(',').join('/'),
+          dist: dist,
+        },
+      ];
+
+      const processedFiles: Array<{ fileId: string; newFileId: string }> = [];
+      const failedFiles: string[] = [];
+
+      while (folderQueue.length > 0) {
+        const currentFolder = folderQueue.shift()!;
+        const curFolderName = currentFolder.path.split('/').pop();
+
+        // 获取指定目录下的所有文件
+        const listUrl = new URL(
+          `${url.origin}/api/manage/list?count=-1&folder=${currentFolder.path}`
+        );
+        const listRequest = new Request(listUrl, {
+          headers: request.headers,
+        });
+        const listResponse = await fetch(listRequest);
+        const listData: any = await listResponse.json();
+
+        const files = listData.files;
+        const folderDist =
+          currentFolder.dist === '' ? curFolderName : `${currentFolder.dist}/${curFolderName}`;
+
+        // 处理当前文件夹下的所有文件
+        for (const file of files) {
+          const fileId = file.name;
+          const fileName = file.name.split('/').pop();
+          const newFileId = `${folderDist}/${fileName}`;
+          const cdnUrl = `https://${url.hostname}/file/${fileId}`;
+
+          const success = await moveFile(env as Env, fileId, newFileId, cdnUrl, url);
+          if (success) {
+            processedFiles.push({ fileId: fileId, newFileId: newFileId });
+          } else {
+            failedFiles.push(fileId);
+          }
+        }
+
+        // 将子文件夹添加到队列
+        const folders = listData.folders || listData.directories || [];
+        for (const dir of folders) {
+          folderQueue.push({
+            path: dir,
+            dist: folderDist,
+          });
+        }
+      }
+
+      // 批量从索引中删除文件，添加新文件
+      if (processedFiles.length > 0) {
+        waitUntil(
+          batchMoveFilesInIndex(
+            context,
+            processedFiles.map(file => {
+              return {
+                originalFileId: file.fileId,
+                newFileId: file.newFileId,
+              };
+            })
+          )
+        );
+      }
+
+      // 返回处理结果
+      return new Response(
+        JSON.stringify({
+          success: true,
+          processed: processedFiles,
+          failed: failedFiles,
+        })
+      );
+    } catch (e: any) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: e.message,
+        }),
+        { status: 400 }
+      );
+    }
+  }
+
+  // 单个文件移动处理
+  try {
+    // 解码params.path
+    params.path = decodeURIComponent(params.path as string);
+    const fileId = String(params.path).split(',').join('/');
+    const fileKey = fileId.split('/').pop();
+    const newFileId = dist === '' ? fileKey : `${dist}/${fileKey}`;
+    const cdnUrl = `https://${url.hostname}/file/${fileId}`;
+
+    const success = await moveFile(env as Env, fileId, newFileId, cdnUrl, url);
+    if (!success) {
+      throw new Error('Move file failed');
+    } else {
+      // 从索引中删除旧文件，并添加新文件
+      waitUntil(moveFileInIndex(context, fileId, newFileId));
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        fileId: fileId,
+        newFileId: newFileId,
+      })
+    );
+  } catch (e: any) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: e.message,
+      }),
+      { status: 400 }
+    );
+  }
+}
+
+// 移动单个文件的核心函数
+async function moveFile(
+  env: Env,
+  fileId: string,
+  newFileId: string,
+  cdnUrl: string,
+  url: URL,
+): Promise<boolean> {
+  try {
+    const db = getDatabase(env);
+
+    // 读取图片信息
+    const img = await db.getWithMetadata(fileId);
+
+    if (!img) {
+      throw new Error('File not found');
+    }
+
+    const metadata = (img.metadata || {}) as FileMetadata;
+
+    // 如果是R2渠道的图片，需要移动R2中对应的图片
+    if (metadata.Channel === 'CloudflareR2') {
+      const R2DataBase = env.hammybox_r2;
+
+      // 获取原文件内容
+      const object = await R2DataBase.get(fileId);
+      if (!object) {
+        throw new Error('R2 Object Not Found');
+      }
+
+      // 复制到新位置
+      await R2DataBase.put(newFileId, object.body);
+
+      // 删除旧文件
+      await R2DataBase.delete(fileId);
+    }
+
+    // S3 渠道的图片，需要移动S3中对应的图片
+    if (metadata.Channel === 'S3') {
+      const { success, newKey, error } = await moveS3File(env, img, newFileId);
+      if (!success) {
+        throw new Error(error || 'S3 Move Failed');
+      }
+      metadata.S3FileKey = newKey;
+    }
+
+    // WebDAV 渠道的图片，需要移动 WebDAV 中对应的文件
+    if (metadata.Channel === 'WebDAV') {
+      const { success, error } = await moveWebDAVFile(env, img, newFileId);
+      if (!success) {
+        throw new Error(error || 'WebDAV Move Failed');
+      }
+      metadata.WebDAVFilePath = newFileId;
+    }
+
+    // 旧版 Telegram 渠道和 Telegraph 渠道不支持移动
+    if (metadata.Channel === 'Telegram' || metadata.Channel === undefined) {
+      throw new Error('Unsupported Channel');
+    }
+
+    // 更新文件夹信息，根目录为空，否则为 aaa/123/ 的格式
+    const DirectoryPath =
+      newFileId.split('/').slice(0, -1).join('/') === ''
+        ? ''
+        : newFileId.split('/').slice(0, -1).join('/') + '/';
+    metadata.Folder = DirectoryPath;
+    img.metadata = cleanPersistedMetadata(metadata);
+
+    // 更新KV存储
+    await db.put(newFileId, img.value as string, { metadata: img.metadata });
+    await db.delete(fileId);
+
+    // 清除CDN缓存
+    await purgeCFCache(env, cdnUrl);
+
+    // 清除旧文件路径的 Cache API 缓存
+    await purgeFileCache(url.origin, fileId);
+
+    // 清除 api/randomFileList 等API缓存
+    const normalizedFolder = fileId.split('/').slice(0, -1).join('/');
+    const normalizedDist = newFileId.split('/').slice(0, -1).join('/');
+    await purgeRandomFileListCache(url.origin, normalizedFolder, normalizedDist);
+    await purgePublicFileListCache(url.origin, normalizedFolder, normalizedDist);
+
+    return true;
+  } catch (e) {
+    console.error('Move file failed:', e);
+    return false;
+  }
+}
+
+// 移动 S3 渠道的图片
+async function moveS3File(
+  env: Env,
+  img: { metadata?: unknown },
+  newFileId: string,
+): Promise<Record<string, any>> {
+  const db = getDatabase(env);
+  const s3Credentials = await resolveS3Credentials(db, env, img.metadata as FileMetadata);
+  const s3Client = new S3Client({
+    region: s3Credentials.region || 'auto',
+    endpoint: s3Credentials.endpoint,
+    credentials: {
+      accessKeyId: s3Credentials.accessKeyId,
+      secretAccessKey: s3Credentials.secretAccessKey,
+    },
+    forcePathStyle: s3Credentials.pathStyle || false, // 是否启用路径风格
+  });
+
+  const bucketName = s3Credentials.bucketName;
+  const oldKey = s3Credentials.key;
+  const newKey = newFileId;
+
+  try {
+    // 复制文件到新位置
+    await s3Client.send(
+      new CopyObjectCommand({
+        Bucket: bucketName,
+        CopySource: `/${bucketName}/${oldKey}`,
+        Key: newKey,
+      })
+    );
+
+    // 复制成功后，删除旧文件
+    await s3Client.send(
+      new DeleteObjectCommand({
+        Bucket: bucketName,
+        Key: oldKey,
+      })
+    );
+
+    // 返回新的 S3 文件信息
+    return {
+      success: true,
+      newKey,
+      endpoint: s3Credentials.endpoint,
+      bucketName,
+      source: s3Credentials.source,
+    };
+  } catch (error: any) {
+    console.error('S3 Move Failed:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// 移动 WebDAV 渠道的图片
+async function moveWebDAVFile(
+  env: Env,
+  img: { metadata?: unknown },
+  newFileId: string,
+): Promise<Record<string, any>> {
+  const metadata = (img.metadata || {}) as FileMetadata;
+  const oldPath = metadata.WebDAVFilePath;
+
+  if (!oldPath) {
+    return { success: false, error: 'WebDAV file missing required metadata for move' };
+  }
+
+  try {
+    const db = getDatabase(env);
+    const webdavConfig = await resolveWebDAVCredentials(db, env, img.metadata as FileMetadata);
+    if (!webdavConfig.baseUrl) {
+      return { success: false, error: 'WebDAV channel config not found for move' };
+    }
+
+    const webdavAPI = new WebDAVAPI(webdavConfig as any);
+    await webdavAPI.moveFile(oldPath, newFileId, true);
+    return { success: true, newKey: newFileId, webdavConfig };
+  } catch (error: any) {
+    console.error('WebDAV Move Failed:', error);
+    return { success: false, error: error.message };
+  }
+}

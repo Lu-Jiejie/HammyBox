@@ -8,11 +8,58 @@ export interface ResolvedCredentials {
   [key: string]: unknown;
 }
 
+/** S3 渠道凭据 */
+export interface S3Credentials extends ResolvedCredentials {
+  endpoint?: string;
+  region?: string;
+  bucketName?: string;
+  pathStyle?: boolean;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  cdnDomain?: string;
+  key?: string;
+}
+
+/** Telegram 渠道凭据 */
+export interface TelegramCredentials extends ResolvedCredentials {
+  botToken?: string;
+  chatId?: string;
+  proxyUrl?: string;
+  fileId?: unknown;
+}
+
+/** Discord 渠道凭据 */
+export interface DiscordCredentials extends ResolvedCredentials {
+  botToken?: string;
+  channelId?: string;
+  proxyUrl?: string;
+  messageId?: unknown;
+}
+
+/** HuggingFace 渠道凭据 */
+export interface HuggingFaceCredentials extends ResolvedCredentials {
+  token?: string;
+  repo?: string;
+  isPrivate?: boolean;
+  filePath?: string;
+}
+
+/** WebDAV 渠道凭据 */
+export interface WebDAVCredentials extends ResolvedCredentials {
+  baseUrl?: string;
+  username?: string;
+  password?: string;
+  headers?: Record<string, string>;
+  createDirectory?: boolean;
+  publicUrl?: string;
+  filePath?: string;
+}
+
 export async function resolveS3Credentials(
   db: { get(key: string): Promise<string | null> },
   env: Env,
   metadata: FileMetadata = {},
-): Promise<ResolvedCredentials> {
+): Promise<S3Credentials> {
   const channel = await loadConfiguredChannel(db, env, 's3', metadata);
   if (channel) {
     return {
@@ -37,14 +84,14 @@ export async function resolveS3Credentials(
     secretAccessKey: '',
     cdnDomain: '',
     key: metadata.S3FileKey,
-  });
+  }) as S3Credentials;
 }
 
 export async function resolveTelegramCredentials(
   db: { get(key: string): Promise<string | null> },
   env: Env,
   metadata: FileMetadata = {},
-): Promise<ResolvedCredentials> {
+): Promise<TelegramCredentials> {
   const channel = await loadConfiguredChannel(db, env, 'telegram', metadata);
   if (channel) {
     return {
@@ -61,14 +108,14 @@ export async function resolveTelegramCredentials(
     chatId: '',
     proxyUrl: '',
     fileId: metadata.TelegramFileId,
-  });
+  }) as TelegramCredentials;
 }
 
 export async function resolveDiscordCredentials(
   db: { get(key: string): Promise<string | null> },
   env: Env,
   metadata: FileMetadata = {},
-): Promise<ResolvedCredentials> {
+): Promise<DiscordCredentials> {
   const channel = await loadConfiguredChannel(db, env, 'discord', metadata);
   if (channel) {
     return {
@@ -85,14 +132,14 @@ export async function resolveDiscordCredentials(
     channelId: '',
     proxyUrl: '',
     messageId: metadata.DiscordMessageId,
-  });
+  }) as DiscordCredentials;
 }
 
 export async function resolveHuggingFaceCredentials(
   db: { get(key: string): Promise<string | null> },
   env: Env,
   metadata: FileMetadata = {},
-): Promise<ResolvedCredentials> {
+): Promise<HuggingFaceCredentials> {
   const channel = await loadConfiguredChannel(db, env, 'huggingface', metadata);
   if (channel) {
     return {
@@ -109,14 +156,14 @@ export async function resolveHuggingFaceCredentials(
     repo: '',
     isPrivate: false,
     filePath: metadata.HfFilePath,
-  });
+  }) as HuggingFaceCredentials;
 }
 
 export async function resolveWebDAVCredentials(
   db: { get(key: string): Promise<string | null> },
   env: Env,
   metadata: FileMetadata = {},
-): Promise<ResolvedCredentials> {
+): Promise<WebDAVCredentials> {
   const channel = await loadConfiguredChannel(db, env, 'webdav', metadata);
   if (channel) {
     return {
@@ -139,7 +186,7 @@ export async function resolveWebDAVCredentials(
     createDirectory: true,
     publicUrl: '',
     filePath: metadata.WebDAVFilePath,
-  });
+  }) as WebDAVCredentials;
 }
 
 async function loadConfiguredChannel<K extends ChannelGroupKey>(
