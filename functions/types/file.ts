@@ -9,8 +9,10 @@
  * 文件元数据（KV value 的 metadata，或 D1 files 表解析后的对象）
  */
 export interface FileMetadata {
-  /** 文件名（原始文件名） */
+  /** 文件名（即存储名/下载名，上传时按命名格式生成；重命名时同步更新） */
   FileName?: string;
+  /** 原始本地文件名（上传时的本地名，供管理端参考展示） */
+  OriginalFileName?: string;
   /** MIME 类型 */
   FileType?: string;
   /** 文件大小（MB，字符串形式，如 "12.34"） */

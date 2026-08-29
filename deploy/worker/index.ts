@@ -20,17 +20,16 @@ import * as apiManageBatchIndexChunk from '../../functions/api/manage/batch/inde
 import * as apiManageBatchIndexConfig from '../../functions/api/manage/batch/index/config.js';
 import * as apiManageBatchIndexFinalize from '../../functions/api/manage/batch/index/finalize.js';
 import * as apiManageBatchRestoreChunk from '../../functions/api/manage/batch/restore/chunk.js';
+import * as apiManageBatchDelete from '../../functions/api/manage/batch/delete.js';
 import * as apiManageBatchList from '../../functions/api/manage/batch/list.js';
+import * as apiManageBatchMove from '../../functions/api/manage/batch/move.js';
 import * as apiManageBatchSettings from '../../functions/api/manage/batch/settings.js';
 import * as apiManageCachePurge from '../../functions/api/manage/cache/purge.js';
-import * as apiManageFoldersList from '../../functions/api/manage/folders/list.js';
 import * as apiManageFoldersTree from '../../functions/api/manage/folders/tree.js';
 import * as apiManageSysConfigOthers from '../../functions/api/manage/sysConfig/others.js';
 import * as apiManageSysConfigPage from '../../functions/api/manage/sysConfig/page.js';
 import * as apiManageSysConfigSecurity from '../../functions/api/manage/sysConfig/security.js';
 import * as apiManageSysConfigUpload from '../../functions/api/manage/sysConfig/upload.js';
-import * as apiManageTagsAutocomplete from '../../functions/api/manage/tags/autocomplete.js';
-import * as apiManageTagsBatch from '../../functions/api/manage/tags/batch.js';
 import * as apiUploadHuggingfaceCommitUpload from '../../functions/api/upload/huggingface/commitUpload.js';
 import * as apiUploadHuggingfaceCompleteMultipart from '../../functions/api/upload/huggingface/completeMultipart.js';
 import * as apiUploadHuggingfaceGetUploadUrl from '../../functions/api/upload/huggingface/getUploadUrl.js';
@@ -49,7 +48,6 @@ import * as apiRandom_index from '../../functions/api/random/index.js';
 import * as apiUpload_index from '../../functions/api/upload/index.js';
 import * as apiUserConfig from '../../functions/api/userConfig.js';
 import * as apiManageDeleteCatchAll from '../../functions/api/manage/delete/[[path]].js';
-import * as apiManageMetadataCatchAll from '../../functions/api/manage/metadata/[[path]].js';
 import * as apiManageMoveCatchAll from '../../functions/api/manage/move/[[path]].js';
 import * as apiManageRenameCatchAll from '../../functions/api/manage/rename/[[path]].js';
 import * as apiManageTagsCatchAll from '../../functions/api/manage/tags/[[path]].js';
@@ -64,17 +62,16 @@ const routes = [
     { path: '/api/manage/batch/index/config', module: apiManageBatchIndexConfig, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/batch/index/finalize', module: apiManageBatchIndexFinalize, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/batch/restore/chunk', module: apiManageBatchRestoreChunk, middlewares: [mw_api, mw_api_manage] },
+    { path: '/api/manage/batch/delete', module: apiManageBatchDelete, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/batch/list', module: apiManageBatchList, middlewares: [mw_api, mw_api_manage] },
+    { path: '/api/manage/batch/move', module: apiManageBatchMove, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/batch/settings', module: apiManageBatchSettings, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/cache/purge', module: apiManageCachePurge, middlewares: [mw_api, mw_api_manage] },
-    { path: '/api/manage/folders/list', module: apiManageFoldersList, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/folders/tree', module: apiManageFoldersTree, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/sysConfig/others', module: apiManageSysConfigOthers, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/sysConfig/page', module: apiManageSysConfigPage, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/sysConfig/security', module: apiManageSysConfigSecurity, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/manage/sysConfig/upload', module: apiManageSysConfigUpload, middlewares: [mw_api, mw_api_manage] },
-    { path: '/api/manage/tags/autocomplete', module: apiManageTagsAutocomplete, middlewares: [mw_api, mw_api_manage] },
-    { path: '/api/manage/tags/batch', module: apiManageTagsBatch, middlewares: [mw_api, mw_api_manage] },
     { path: '/api/upload/huggingface/commitUpload', module: apiUploadHuggingfaceCommitUpload, middlewares: [mw_api, mw_api_upload] },
     { path: '/api/upload/huggingface/completeMultipart', module: apiUploadHuggingfaceCompleteMultipart, middlewares: [mw_api, mw_api_upload] },
     { path: '/api/upload/huggingface/getUploadUrl', module: apiUploadHuggingfaceGetUploadUrl, middlewares: [mw_api, mw_api_upload] },
@@ -93,7 +90,6 @@ const routes = [
     { path: '/api/upload', module: apiUpload_index, middlewares: [mw_api, mw_api_upload] },
     { path: '/api/userConfig', module: apiUserConfig, middlewares: [mw_api] },
     { path: '/api/manage/delete/', module: apiManageDeleteCatchAll, middlewares: [mw_api, mw_api_manage], catchAll: true },
-    { path: '/api/manage/metadata/', module: apiManageMetadataCatchAll, middlewares: [mw_api, mw_api_manage], catchAll: true },
     { path: '/api/manage/move/', module: apiManageMoveCatchAll, middlewares: [mw_api, mw_api_manage], catchAll: true },
     { path: '/api/manage/rename/', module: apiManageRenameCatchAll, middlewares: [mw_api, mw_api_manage], catchAll: true },
     { path: '/api/manage/tags/', module: apiManageTagsCatchAll, middlewares: [mw_api, mw_api_manage], catchAll: true },

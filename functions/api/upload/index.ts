@@ -246,6 +246,11 @@ async function processFileUpload(context: UploadContext, formdata: FormData | nu
   // 构建文件ID
   const fullId = await buildUniqueFileId(context, fileName, fileType);
 
+  // 下载名 = 存储名 = 文件名（三者一致）：
+  // FileName 覆盖为完整存储路径的最后一段（即 URL 上的文件名），原始本地名存 OriginalFileName
+  metadata.OriginalFileName = fileName;
+  metadata.FileName = fullId.split('/').pop() || fileName;
+
   // 获得返回链接格式, default为返回/api/file/id, full为返回完整链接
   const returnFormat = url.searchParams.get('returnFormat') || 'default';
   let returnLink = '';

@@ -123,7 +123,9 @@ export async function onRequestPost(context: PagesContext): Promise<Response> {
 
     // 构建 metadata
     const metadata: FileMetadata = {
-      FileName: fileName || fullId,
+      // 下载名 = 存储名：FileName 用存储路径最后一段，原始本地名存 OriginalFileName
+      FileName: fullId.split('/').pop() || fileName || fullId,
+      OriginalFileName: fileName || fullId,
       FileType: fileType || '',
       Channel: 'HuggingFace',
       ChannelName: hfChannel.name || 'HuggingFace_env',

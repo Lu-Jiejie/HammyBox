@@ -7,6 +7,7 @@ import {
 import { addFileToIndex } from '../../utils/indexManager.js';
 import { getDatabase } from '../../utils/databaseAdapter.js';
 import { normalizeFolderPath } from '../../utils/pathNormalizer.js';
+import { expandNameTemplate, sanitizeTemplateResult } from '../../utils/namingTemplate.js';
 import type { Env, FileMetadata, PagesContext, SecurityConfig, UploadConfig } from '../../types';
 
 /**
@@ -470,6 +471,27 @@ export async function buildUniqueFileId(
       : `${unique_index}.${fileExt}`;
   } else if (nameType === 'origin') {
     baseId = normalizedFolder ? `${normalizedFolder}/${fileName}` : fileName;
+  } else if (nameType === 'custom') {
+    // 自定义模板命名：展开模板生成存储名（可含多级路径，如 {YYYY}/{MM}/{DD}/{Name}{Ext}）
+    const template = url.searchParams.get('uploadNameTemplate') || '';
+    if (!template) {
+      // 模板为空时回退到 default 命名
+      baseId = normalizedFolder
+        ? `${normalizedFolder}/${unique_index}_${fileName}`
+        : `${unique_index}_${fileName}`;
+    } else {
+      let expanded = expandNameTemplate(template, { fileName, fileExt });
+      // 若展开结果不含文件扩展名（最后一段无点号），自动补全扩展名
+      const lastSeg = expanded.split('/').pop() || '';
+      if (!lastSeg.includes('.')) {
+        expanded += fileExt ? `.${fileExt}` : '';
+      }
+      const safePath = sanitizeTemplateResult(expanded);
+      if (!safePath) {
+        throw new Error('Generated file name is empty after sanitization');
+      }
+      baseId = normalizedFolder ? `${normalizedFolder}/${safePath}` : safePath;
+    }
   } else if (nameType === 'short') {
     // 对于短链接，直接在循环中生成不重复的ID
     while (true) {
@@ -521,6 +543,15 @@ export async function buildUniqueFileId(
       duplicateId = normalizedFolder
         ? `${normalizedFolder}/${nameWithoutExt}(${counter})${ext}`
         : `${nameWithoutExt}(${counter})${ext}`;
+    } else if (nameType === 'custom') {
+      // 模板命名：baseId 可能含多级路径，只在最后一段的文件名与扩展名之间插入 (n)
+      const lastSlash = baseId.lastIndexOf('/');
+      const dir = lastSlash >= 0 ? baseId.substring(0, lastSlash + 1) : '';
+      const fileNamePart = lastSlash >= 0 ? baseId.substring(lastSlash + 1) : baseId;
+      const dotIndex = fileNamePart.lastIndexOf('.');
+      const nameWithoutExt = dotIndex > 0 ? fileNamePart.substring(0, dotIndex) : fileNamePart;
+      const ext = dotIndex > 0 ? fileNamePart.substring(dotIndex) : '';
+      duplicateId = `${dir}${nameWithoutExt}(${counter})${ext}`;
     } else {
       const baseName = `${unique_index}_${fileName}`;
       const nameWithoutExt = baseName.substring(0, baseName.lastIndexOf('.'));

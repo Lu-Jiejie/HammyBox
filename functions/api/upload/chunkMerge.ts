@@ -216,6 +216,8 @@ async function handleChannelBasedMerge(
       TimeStamp: Date.now(),
       Folder: normalizedFolder === '' ? '' : normalizedFolder + '/',
       Tags: tagsArray,
+      // 原始本地文件名（下载名=存储名=文件名三者一致后，此处保留原始名供参考）
+      OriginalFileName: originalFileName,
     };
 
     // 收集所有已上传的分块信息
@@ -352,6 +354,9 @@ async function mergeR2ChunksInfo(
     // 清理multipart info
     await db.delete(multipartKey);
 
+    // 下载名 = 存储名：FileName 覆盖为存储路径最后一段
+    metadata.FileName = finalFileId.split('/').pop() || metadata.FileName;
+
     // 写入数据库
     await db.put(finalFileId, '', { metadata });
 
@@ -473,6 +478,9 @@ async function mergeS3ChunksInfo(
     // 清理multipart info
     await db.delete(multipartKey);
 
+    // 下载名 = 存储名：FileName 覆盖为存储路径最后一段
+    metadata.FileName = finalFileId.split('/').pop() || metadata.FileName;
+
     // 写入数据库
     await db.put(finalFileId, '', { metadata });
 
@@ -557,6 +565,9 @@ async function mergeTelegramChunksInfo(
 
     // 生成 finalFileId
     const finalFileId = await buildUniqueFileId(context, metadata.FileName!, metadata.FileType);
+
+    // 下载名 = 存储名：FileName 覆盖为存储路径最后一段
+    metadata.FileName = finalFileId.split('/').pop() || metadata.FileName;
 
     // 更新metadata
     metadata.Channel = 'Telegram';
@@ -658,6 +669,9 @@ async function mergeDiscordChunksInfo(
 
     // 生成 finalFileId
     const finalFileId = await buildUniqueFileId(context, metadata.FileName!, metadata.FileType);
+
+    // 下载名 = 存储名：FileName 覆盖为存储路径最后一段
+    metadata.FileName = finalFileId.split('/').pop() || metadata.FileName;
 
     // 更新metadata
     metadata.Channel = 'Discord';
