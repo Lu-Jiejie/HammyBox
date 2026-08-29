@@ -52,30 +52,43 @@ function isAllowedDirectory(folder: string, allowedDirs: string[]): boolean {
 }
 
 /**
- * 获取公开浏览文件列表（带缓存）
+ * 获取公开浏览文件列表
  * @param context - 上下文对象
  * @param url - 请求URL
  * @param folder - 目录
  * @param recursive - 是否递归
+ * @param includeTags - 标签过滤（AND，全部命中才返回）
  * @returns 文件列表和目录列表，包含 fromCache 字段
+ *
+ * 缓存策略：
+ * - 目录模式（无 includeTags）：使用 Cache API 缓存 24h（配合 purgePublicFileListCache 清除）
+ * - tag 模式（有 includeTags）：跳过 Cache API（标签实时变化，缓存会导致打标签后看不到新文件），
+ *   仅依赖 CDN 边缘缓存（Cache-Control 短 TTL）
  */
 async function getPublicFileList(
   context: PagesContext,
   url: URL,
   folder: string,
-  recursive: boolean
+  recursive: boolean,
+  includeTags: string[] = []
 ): Promise<Record<string, unknown>> {
+  // tag 模式跳过 Cache API，直接读取实时索引
+  const useCacheApi = includeTags.length === 0;
+
   // 构建缓存键（目录格式去掉末尾的/，与清除缓存时的格式一致）
   const cacheDir = folder.replace(/\/$/, '');
-  const cacheKey = `${url.origin}/api/publicFileList?folder=${cacheDir}&recursive=${recursive}`;
+  const tagsKey = includeTags.length > 0 ? `&tags=${includeTags.join(',')}` : '';
+  const cacheKey = `${url.origin}/api/publicFileList?folder=${cacheDir}&recursive=${recursive}${tagsKey}`;
 
   // 检查缓存中是否有记录
-  const cache = caches.default;
-  const cacheRes = await cache.match(cacheKey);
-  if (cacheRes) {
-    const data = JSON.parse(await cacheRes.text());
-    data.fromCache = true;
-    return data;
+  if (useCacheApi) {
+    const cache = caches.default;
+    const cacheRes = await cache.match(cacheKey);
+    if (cacheRes) {
+      const data = JSON.parse(await cacheRes.text());
+      data.fromCache = true;
+      return data;
+    }
   }
 
   // 读取文件列表
@@ -85,6 +98,7 @@ async function getPublicFileList(
     count: -1,
     includeSubdirFiles: recursive,
     accessStatus: 'normal', // 只返回正常可访问的内容
+    includeTags: includeTags,
   });
 
   if (!result.success) {
@@ -107,18 +121,21 @@ async function getPublicFileList(
     totalCount: result.totalCount,
   };
 
-  // 缓存结果，缓存时间为24小时
-  await (cache.put as any)(
-    cacheKey,
-    new Response(JSON.stringify(cacheData), {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }),
-    {
-      expirationTtl: 24 * 60 * 60,
-    }
-  );
+  // 目录模式：缓存结果 24 小时（由 purgePublicFileListCache 负责清除）
+  if (useCacheApi) {
+    const cache = caches.default;
+    await (cache.put as any)(
+      cacheKey,
+      new Response(JSON.stringify(cacheData), {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+      {
+        expirationTtl: 24 * 60 * 60,
+      }
+    );
+  }
 
   cacheData.fromCache = false;
   return cacheData;
@@ -157,7 +174,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
       });
     }
 
-    // 解析允许的目录
+    // 解析允许的目录（目录浏览模式使用；tag 模式不受目录白名单限制）
     const allowedDirStr = publicBrowse.allowedDir || '';
     const allowedDirs = allowedDirStr.split(',').map(d => d.trim()).filter(d => d);
 
@@ -169,12 +186,19 @@ export async function onRequest(context: PagesContext): Promise<Response> {
       search = decodeURIComponent(search).trim().toLowerCase();
     }
 
+    // 标签过滤（支持 tags=photo,shared 逗号分隔，或 tags[]=photo&tags[]=shared 数组形式；AND 匹配）
+    let tagsParam = url.searchParams.get('tags') || '';
+    if (!tagsParam) {
+      tagsParam = url.searchParams.getAll('tags[]').join(',');
+    }
+    const includeTags = tagsParam.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+
     // 获取高级搜索参数
     const recursive = url.searchParams.get('recursive') === 'true';
     const fileType = url.searchParams.get('type') || ''; // image, video, audio, other
 
-    // 检查目录权限
-    if (!isAllowedDirectory(folder, allowedDirs)) {
+    // tag 模式：按标签收录即为授权，跳过目录白名单检查
+    if (includeTags.length === 0 && !isAllowedDirectory(folder, allowedDirs)) {
       return new Response(JSON.stringify({ error: 'Directory not allowed' }), {
         status: 403,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -186,7 +210,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     const count = parseInt(url.searchParams.get('count') || '', 10) || 50;
 
     // 获取文件列表（带缓存）
-    const cachedData = await getPublicFileList(context, url, folder, recursive);
+    const cachedData = await getPublicFileList(context, url, folder, recursive, includeTags);
 
     // 过滤子文件夹，只返回允许的文件夹
     const folders = (cachedData.folders || []) as string[];
@@ -243,6 +267,9 @@ export async function onRequest(context: PagesContext): Promise<Response> {
       metadata: file.metadata,
     }));
 
+    // tag 模式数据实时变化，CDN 短缓存（60s）；目录模式可缓存更久（5min）
+    const cdnMaxAge = includeTags.length > 0 ? 60 : 300;
+
     return new Response(
       JSON.stringify({
         files: safeFiles,
@@ -253,7 +280,13 @@ export async function onRequest(context: PagesContext): Promise<Response> {
         fromCache: cachedData.fromCache,
       }),
       {
-        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        headers: {
+          'Content-Type': 'application/json',
+          ...corsHeaders,
+          // CF 边缘缓存（公开只读内容），命中后不消耗 Worker 请求额度
+          'Cache-Control': `public, max-age=${cdnMaxAge}`,
+          'CDN-Cache-Control': `public, max-age=${cdnMaxAge}`,
+        },
       }
     );
   } catch (error: any) {

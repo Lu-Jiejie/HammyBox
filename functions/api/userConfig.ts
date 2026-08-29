@@ -8,6 +8,10 @@ export async function onRequest(context: { env: Env }): Promise<Response> {
   const userConfig: Record<string, unknown> = {};
 
   for (const config of userConfigList) {
+    // 只公开 pub:* 前缀的配置（公开页配置），其余页面配置（如 uploadPresets）不对外暴露
+    if (!config.id?.startsWith('pub:')) {
+      continue;
+    }
     if (config.value !== undefined && config.value !== null && config.value !== '') {
       // 将config解析为JSON对象，若解析失败则返回原始字符串
       try {
